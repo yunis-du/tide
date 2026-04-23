@@ -31,6 +31,63 @@ mod state;
 mod tray;
 mod views;
 
+#[cfg(target_os = "windows")]
+fn window_hwnd(window: &Window) -> Option<windows::Win32::Foundation::HWND> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use std::ffi::c_void;
+    use windows::Win32::Foundation::HWND;
+
+    let handle = HasWindowHandle::window_handle(window).ok()?;
+    let RawWindowHandle::Win32(raw) = handle.as_raw() else {
+        return None;
+    };
+    Some(HWND(raw.hwnd.get() as *mut c_void))
+}
+
+#[cfg(target_os = "windows")]
+fn hide_on_windows(window: &Window) {
+    use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
+
+    // GPUI's App::hide() is a no-op on Windows, so we hide the native HWND directly.
+    if let Some(hwnd) = window_hwnd(window) {
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn show_on_windows(window: &Window) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        IsIconic, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
+    };
+
+    if let Some(hwnd) = window_hwnd(window) {
+        unsafe {
+            if IsIconic(hwnd).as_bool() {
+                let _ = ShowWindow(hwnd, SW_RESTORE);
+            } else {
+                let _ = ShowWindow(hwnd, SW_SHOW);
+            }
+            let _ = SetForegroundWindow(hwnd);
+        }
+    }
+}
+
+fn hide_to_tray(cx: &mut App) {
+    #[cfg(target_os = "windows")]
+    {
+        for handle in cx.windows() {
+            let _ = handle.update(cx, |_, window, _| hide_on_windows(window));
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        cx.hide();
+    }
+}
+
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
@@ -104,11 +161,15 @@ pub(crate) fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Root
         },
         |window, cx| {
             // Keep About and other windows independent when main window closes.
-            #[cfg(target_os = "macos")]
-            window.on_window_should_close(cx, move |_window, _cx| true);
-            #[cfg(target_os = "windows")]
-            window.on_window_should_close(cx, move |window, _cx| {
-                window.minimize_window();
+            window.on_window_should_close(cx, move |_window, cx| {
+                #[cfg(target_os = "windows")]
+                {
+                    hide_on_windows(_window);
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    cx.hide();
+                }
                 false
             });
             let content_view = cx.new(|cx| Tide::new(window, cx));
@@ -197,12 +258,7 @@ fn main() {
         cx.on_action(|e: &HotKeyAction, cx: &mut App| match e {
             HotKeyAction::Quit => cx.quit(),
             HotKeyAction::Hide => {
-                #[cfg(target_os = "macos")]
-                cx.hide();
-                #[cfg(target_os = "windows")]
-                if let Some(handle) = cx.active_window() {
-                    let _ = handle.update(cx, |_, window, _| window.minimize_window());
-                }
+                hide_to_tray(cx);
             }
         });
 

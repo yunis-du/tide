@@ -176,7 +176,13 @@ mod platform {
 
     async fn activate_window(cx: &mut AsyncApp, window: WindowHandle<Root>) -> bool {
         let _ = cx.update(|cx| cx.activate(true));
-        window.update(cx, |_, w, _| w.activate_window()).is_ok()
+        window
+            .update(cx, |_, w, _| {
+                #[cfg(target_os = "windows")]
+                crate::show_on_windows(w);
+                w.activate_window();
+            })
+            .is_ok()
     }
 
     fn today_pending_count(cx: &App) -> usize {

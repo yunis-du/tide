@@ -6403,6 +6403,7 @@ dependencies = [
  "gpui-macros",
  "locale_config",
  "png 0.18.1",
+ "raw-window-handle",
  "rfd",
  "rust-embed",
  "rust-i18n 4.0.0",
@@ -6412,6 +6413,7 @@ dependencies = [
  "toml 1.1.2+spec-1.1.0",
  "tracing",
  "tray-icon",
+ "windows 0.61.3",
  "winres",
 ]
 

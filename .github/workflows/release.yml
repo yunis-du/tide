@@ -126,6 +126,11 @@ jobs:
           # Only copy NSIS installer (exclude raw exe)
           find artifacts -type f -name "*setup*.exe" -exec cp {} release/ \;
           find artifacts -type f -name "*installer*.exe" -exec cp {} release/ \;
+          # Normalize architecture suffix in filenames
+          for f in release/*_x64*; do
+            [ -e "$f" ] || continue
+            mv "$f" "${f//_x64/_x86_64}"
+          done
           ls -la release/
 
       - name: Generate checksums

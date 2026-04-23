@@ -161,14 +161,14 @@ pub(crate) fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Root
         },
         |window, cx| {
             // Keep About and other windows independent when main window closes.
-            window.on_window_should_close(cx, move |_window, cx| {
+            window.on_window_should_close(cx, move |_window, _cx| {
                 #[cfg(target_os = "windows")]
                 {
                     hide_on_windows(_window);
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
-                    cx.hide();
+                    _cx.hide();
                 }
                 false
             });

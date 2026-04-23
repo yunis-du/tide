@@ -1,0 +1,10 @@
+/target
+
+.vscode
+.claude
+.cursor
+.idea
+
+.DS_Store
+
+*.log

@@ -1,0 +1,209 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ====================
+  # macOS
+  # ====================
+  build-macos:
+    name: macOS - ${{ matrix.arch }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            arch: x86_64
+          - target: aarch64-apple-darwin
+            arch: aarch64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Build APP
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package APP
+        run: cargo packager --release --target ${{ matrix.target }} --formats dmg
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Upload APP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tide-macos-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/*.dmg
+
+  # ====================
+  # Windows
+  # ====================
+  build-windows:
+    name: Windows - ${{ matrix.arch }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x86_64
+          - target: i686-pc-windows-msvc
+            arch: i686
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cargo-packager
+        if: matrix.arch == 'x86_64'
+        run: cargo install cargo-packager --locked
+
+      - name: Install NSIS
+        if: matrix.arch == 'x86_64'
+        run: choco install nsis -y
+
+      - name: Build APP
+        if: matrix.arch == 'x86_64'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package APP
+        if: matrix.arch == 'x86_64'
+        run: cargo packager --release --target ${{ matrix.target }} --formats nsis
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Upload APP artifact
+        if: matrix.arch == 'x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tide-windows-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/*.exe
+
+  # ====================
+  # Create Release
+  # ====================
+  release:
+    name: Create Release
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f
+
+      - name: Collect all files
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.deb" -o -name "*.rpm" -o -name "*.dmg" \) -exec cp {} release/ \;
+          # Only copy NSIS installer (exclude raw exe)
+          find artifacts -type f -name "*setup*.exe" -exec cp {} release/ \;
+          find artifacts -type f -name "*installer*.exe" -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Generate Release Notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 1. Fetch auto-generated release notes from GitHub
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/${{ github.repository }}/releases/generate-notes \
+            -f tag_name="${GITHUB_REF#refs/tags/}" \
+            -f target_commitish="${GITHUB_SHA}" \
+            -q .body > gh_notes.md || echo "" > gh_notes.md
+
+          # 2. Parse and group commits using Python
+          python3 -c '
+          import os
+
+          try:
+              lines = open("gh_notes.md").read().split("\n")
+          except Exception:
+              lines = []
+
+          features, fixes, opts = [], [], []
+
+          for line in lines:
+              if line.strip().startswith("* "):
+                  content = line[2:].strip()
+                  # Remove the trailing " by @user in https..."
+                  if " by @" in content:
+                      content = content.split(" by @")[0]
+
+                  lower_content = content.lower()
+                  if lower_content.startswith("feat:"):
+                      msg = content.split(":", 1)[1].strip()
+                      if msg: features.append("- " + msg[0].upper() + msg[1:])
+                  elif lower_content.startswith("fix:"):
+                      msg = content.split(":", 1)[1].strip()
+                      if msg: fixes.append("- " + msg[0].upper() + msg[1:])
+                  elif lower_content.startswith("perf:") or lower_content.startswith("opt:"):
+                      msg = content.split(":", 1)[1].strip()
+                      if msg: opts.append("- " + msg[0].upper() + msg[1:])
+
+          with open("grouped_notes.md", "w", encoding="utf-8") as f:
+              if features:
+                  f.write("### ✨ New Features\n\n" + "\n".join(features) + "\n\n")
+              if fixes:
+                  f.write("### 🐛 Bug Fixes\n\n" + "\n".join(fixes) + "\n\n")
+              if opts:
+                  f.write("### 🔧 Optimizations\n\n" + "\n".join(opts) + "\n\n")
+          '
+
+          # 3. Rename grouped notes to release notes
+          mv grouped_notes.md release_notes.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

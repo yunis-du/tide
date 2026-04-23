@@ -1,0 +1,75 @@
+[package]
+name = "tide"
+version = "0.1.0"
+edition = "2024"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+opt-level = "z"
+
+[dependencies]
+anyhow = "1.0.102"
+chrono = { version = "0.4", features = ["serde"] }
+directories = "6.0.0"
+gpui = "0.2.2"
+gpui-component = "0.5"
+gpui-component-assets = "0.5"
+gpui-macros = "0.2.2"
+locale_config = "0.3.0"
+png = "0.18"
+rfd = "0.17"
+rust-embed = "8.11"
+rust-i18n = "4"
+schemars = "1.2.1"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "1.1.2"
+serde_json = "1"
+tracing = "0.1.44"
+tray-icon = "0.22.0"
+
+[build-dependencies]
+built = { version = "0.8", features = ["chrono", "git2"] }
+winres = "0.1.12"
+
+
+[package.metadata.packager]
+# basic info
+product-name = "Tide"
+identifier = "com.yunisdu.tide"
+description = "A simple and clean desktop to-do app: organize tasks with groups, support for priority (star rating), due dates, and subtasks, data is stored locally."
+homepage = "https://github.com/yunis-du/tide"
+license-file = "LICENSE"
+copyright = "Copyright © 2026 Yunis Du. All rights reserved."
+category = "Utility"
+
+# icons
+icons = [
+    "assets/logos/icons/icon.icns",
+    "assets/logos/icons/icon.ico",
+    "assets/logos/icons/icon.png",
+    "assets/logos/icons/32x32.png",
+    "assets/logos/icons/128x128.png",
+    "assets/logos/icons/128x128@2x.png",
+]
+
+# macOS specific config
+[package.metadata.packager.macos]
+minimum-system-version = "12.0"
+
+# Windows specific config
+[package.metadata.packager.windows]
+digest-algorithm = "sha256"
+timestamp-url = "http://timestamp.digicert.com"
+
+# Windows NSIS installer config
+[package.metadata.packager.nsis]
+compression = "lzma"
+installer-icon = "assets/logos/icons/icon.ico"
+
+# Windows resource config
+[package.metadata.winres]
+OriginalFilename = "tide.exe"
+LegalCopyright = "Copyright © 2026 Yunis Du. All rights reserved."

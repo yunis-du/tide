@@ -61,8 +61,6 @@ jobs:
   build-windows:
     name: Windows - ${{ matrix.arch }}
     runs-on: windows-latest
-    env:
-      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
     strategy:
       fail-fast: false
       matrix:

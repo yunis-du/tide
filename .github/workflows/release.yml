@@ -61,14 +61,16 @@ jobs:
   build-windows:
     name: Windows - ${{ matrix.arch }}
     runs-on: windows-latest
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: x86_64-pc-windows-msvc
             arch: x86_64
-          - target: i686-pc-windows-msvc
-            arch: i686
+          # - target: i686-pc-windows-msvc
+          #   arch: i686
 
     steps:
       - name: Checkout
@@ -80,19 +82,12 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install cargo-packager
-        if: matrix.arch == 'x86_64'
         run: cargo install cargo-packager --locked
 
-      - name: Install NSIS
-        if: matrix.arch == 'x86_64'
-        run: choco install nsis -y
-
       - name: Build APP
-        if: matrix.arch == 'x86_64'
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package APP
-        if: matrix.arch == 'x86_64'
         run: cargo packager --release --target ${{ matrix.target }} --formats nsis
 
       - name: Get version
@@ -101,7 +96,6 @@ jobs:
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Upload APP artifact
-        if: matrix.arch == 'x86_64'
         uses: actions/upload-artifact@v4
         with:
           name: tide-windows-${{ matrix.arch }}
@@ -112,7 +106,7 @@ jobs:
   # ====================
   release:
     name: Create Release
-    needs: [build-linux, build-macos, build-windows]
+    needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
 
     steps:

@@ -27,6 +27,8 @@ const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 mod assets;
 mod components;
 mod helpers;
+#[cfg(target_os = "windows")]
+mod single_instance;
 mod state;
 mod tray;
 mod views;
@@ -179,6 +181,16 @@ pub(crate) fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Root
 }
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    let instance_guard = match single_instance::acquire() {
+        Ok(single_instance::Acquired::First(guard)) => Some(guard),
+        Ok(single_instance::Acquired::AlreadyRunning) => return,
+        Err(e) => {
+            tracing::warn!(error = %e, "single-instance check failed; continuing");
+            None
+        }
+    };
+
     let app = Application::new().with_assets(assets::Assets);
 
     // Load persisted config; fall back to defaults on error.
@@ -269,6 +281,11 @@ fn main() {
             // running (macOS requirement); doing it from this spawned task
             // satisfies that ordering.
             cx.update(|cx| tray::init(cx, handle))?;
+
+            #[cfg(target_os = "windows")]
+            if let Some(guard) = instance_guard {
+                cx.update(|cx| single_instance::spawn_watcher(cx, guard, handle))?;
+            }
 
             Ok::<_, anyhow::Error>(())
         })

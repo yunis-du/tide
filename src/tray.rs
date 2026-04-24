@@ -1,9 +1,7 @@
 //! System tray integration.
 //!
 //! On macOS / Windows this module creates a tray icon with a menu (Show / Quit),
-//! binds clicks on the icon to activating the main window, and keeps a badge
-//! (today's uncompleted task count) visible as the tray title (macOS) and
-//! tooltip (all supported platforms).
+//! binds clicks on the icon to activating the main window
 //!
 //! Linux is intentionally skipped (would require libappindicator + a gtk loop
 //! that GPUI does not run); the public API degrades to no-ops.
@@ -220,7 +218,7 @@ mod platform {
     /// Re-apply tray menu labels for the given locale. Takes the locale
     /// explicitly so it doesn't race the (async) `TideStore` update that
     /// persists the new language setting.
-    pub fn refresh_labels(cx: &App, locale: &str) {
+    pub fn refresh_labels(_cx: &App, locale: &str) {
         let show: String = t!("tray.show", locale = locale).into();
         let about: String = t!("tray.about", locale = locale).into();
         let quit: String = t!("tray.quit", locale = locale).into();
@@ -231,30 +229,33 @@ mod platform {
                 handle.quit_item.set_text(&quit);
             }
         });
-        // Badge tooltip depends on count + locale; refresh via update_badge
-        // which reads locale from the store. At this point that may still be
-        // the old value, so compute the tooltip here with the new locale.
-        let count = today_pending_count(cx);
-        let tooltip: String = if count > 0 {
-            t!(
-                "tray.tooltip_count",
-                count = count.to_string(),
-                locale = locale
-            )
-            .into()
-        } else {
-            t!("tray.tooltip", locale = locale).into()
-        };
-        let title = if count > 0 {
-            count.to_string()
-        } else {
-            String::new()
-        };
-        TRAY.with(|cell| {
-            if let Some(handle) = cell.borrow().as_ref() {
-                handle.tray.set_title(Some(title.as_str()));
-                let _ = handle.tray.set_tooltip(Some(&tooltip));
-            }
-        });
+        #[cfg(target_os = "windows")]
+        {
+            // Badge tooltip depends on count + locale; refresh via update_badge
+            // which reads locale from the store. At this point that may still be
+            // the old value, so compute the tooltip here with the new locale.
+            let count = today_pending_count(_cx);
+            let tooltip: String = if count > 0 {
+                t!(
+                    "tray.tooltip_count",
+                    count = count.to_string(),
+                    locale = locale
+                )
+                .into()
+            } else {
+                t!("tray.tooltip", locale = locale).into()
+            };
+            let title = if count > 0 {
+                count.to_string()
+            } else {
+                String::new()
+            };
+            TRAY.with(|cell| {
+                if let Some(handle) = cell.borrow().as_ref() {
+                    handle.tray.set_title(Some(title.as_str()));
+                    let _ = handle.tray.set_tooltip(Some(&tooltip));
+                }
+            });
+        }
     }
 }

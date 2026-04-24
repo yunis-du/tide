@@ -1,12 +1,13 @@
 use chrono::{Datelike, NaiveDate};
 use gpui::{
-    AnyElement, Context, ElementId, Entity, FontWeight, IntoElement, Render, Styled, Subscription,
-    Window, anchored, deferred, div, prelude::*, px, rgba, white,
+    AnyElement, App, Context, ElementId, Entity, FontWeight, IntoElement, Render, Styled,
+    Subscription, Window, anchored, deferred, div, prelude::*, px, rgba, white,
 };
 use gpui_component::{
-    ActiveTheme, Icon, IconName, Sizable,
-    button::{Button, ButtonVariants},
+    ActiveTheme, Icon, IconName, Sizable, WindowExt,
+    button::{Button, ButtonVariant, ButtonVariants},
     calendar::{Calendar, CalendarEvent, CalendarState, Date},
+    dialog::DialogButtonProps,
     h_flex,
     input::{Escape, InputEvent, InputState},
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
@@ -689,9 +690,12 @@ impl TaskView {
                             .gap_1()
                             .min_h(px(24.))
                             .items_center()
-                            .when(is_hovered || is_selected, |t| {
-                                t.child(Self::render_options_menu(cx, task))
-                            })
+                            .child(
+                                div()
+                                    .opacity(if is_hovered || is_selected { 1.0 } else { 0.0 })
+                                    .when(!(is_hovered || is_selected), |d| d.cursor_default())
+                                    .child(Self::render_options_menu(cx, task)),
+                            )
                             .when(is_starred || is_hovered || is_selected, |t| {
                                 let icon = if is_starred {
                                     CustomIconName::Star
@@ -800,6 +804,7 @@ impl TaskView {
         id: String,
         title: String,
         completed_at: Option<chrono::NaiveDate>,
+        is_subtask: bool,
     ) -> AnyElement {
         let accent = cx.theme().info_active;
         let list_even = cx.theme().list_even;
@@ -808,7 +813,6 @@ impl TaskView {
 
         let task_id = id.clone();
         let is_hovered = self.hovered_task_id.as_deref() == Some(&id);
-        let id_for_chk = id.clone();
         let id_for_undo = id.clone();
         let id_for_delete = id.clone();
         h_flex()
@@ -846,14 +850,7 @@ impl TaskView {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .cursor_pointer()
-                    .child(Icon::new(IconName::Check).size_3().text_color(white()))
-                    .on_click(move |_, _, cx| {
-                        let id = id_for_chk.clone();
-                        update_data_and_save(cx, "toggle_done", move |data, _| {
-                            data.toggle_task_completion(&id);
-                        });
-                    }),
+                    .child(Icon::new(IconName::Check).size_3().text_color(white())),
             )
             .child(
                 v_flex()
@@ -910,16 +907,69 @@ impl TaskView {
                                 .small()
                                 .cursor_pointer()
                                 .tooltip(i18n_content(cx, "delete"))
-                                .on_click(move |_, _, cx| {
+                                .on_click(move |_, window, cx| {
                                     let id = id_for_delete.clone();
-                                    update_data_and_save(cx, "delete_task", move |data, _| {
-                                        data.remove_task(&id);
-                                    });
+                                    Self::open_delete_confirm(id, is_subtask, window, cx);
                                 }),
                         ),
                 )
             })
             .into_any_element()
+    }
+
+    fn open_delete_confirm(id: String, is_subtask: bool, window: &mut Window, cx: &mut App) {
+        let title_key = if is_subtask {
+            "delete_subtask_title"
+        } else {
+            "delete_task_title"
+        };
+        let desc_key = if is_subtask {
+            "delete_subtask_desc"
+        } else {
+            "delete_task_desc"
+        };
+        let action_label = if is_subtask {
+            "delete_subtask"
+        } else {
+            "delete_task"
+        };
+
+        window.open_dialog(cx, move |dialog, window, cx| {
+            let id_for_del = id.clone();
+            let dialog_width = px(360.);
+            let dialog_height = px(160.);
+            let margin_top = ((window.viewport_size().height - dialog_height) / 2.).max(px(0.));
+            dialog
+                .title(i18n_content(cx, title_key))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(i18n_content(cx, desc_key)),
+                )
+                .w(dialog_width)
+                .margin_top(margin_top)
+                .confirm()
+                .button_props(
+                    DialogButtonProps::default()
+                        .ok_text(i18n_content(cx, "confirm_delete"))
+                        .cancel_text(i18n_content(cx, "cancel"))
+                        .ok_variant(ButtonVariant::Danger),
+                )
+                .on_ok(move |_, _, cx| {
+                    let id = id_for_del.clone();
+                    if is_subtask {
+                        update_data_and_save(cx, action_label, move |data, _| {
+                            data.remove_subtask(&id);
+                        });
+                    } else {
+                        update_data_and_save(cx, action_label, move |data, _| {
+                            data.remove_task(&id);
+                        });
+                    }
+                    true
+                })
+        });
     }
 
     fn render_due_picker(&self, cx: &mut Context<Self>, id: &str) -> Option<AnyElement> {
@@ -1023,11 +1073,9 @@ impl TaskView {
                 .item(
                     PopupMenuItem::new(delete_label.clone())
                         .icon(Icon::new(IconName::Delete))
-                        .on_click(move |_, _, cx| {
+                        .on_click(move |_, window, cx| {
                             let id = del.clone();
-                            update_data_and_save(cx, "delete_task", move |data, _| {
-                                data.remove_task(&id);
-                            });
+                            Self::open_delete_confirm(id, false, window, cx);
                         }),
                 )
             })
@@ -1087,11 +1135,9 @@ impl TaskView {
                 .item(
                     PopupMenuItem::new(delete_label.clone())
                         .icon(Icon::new(IconName::Delete))
-                        .on_click(move |_, _, cx| {
+                        .on_click(move |_, window, cx| {
                             let id = del.clone();
-                            update_data_and_save(cx, "delete_subtask", move |data, _| {
-                                data.remove_subtask(&id);
-                            });
+                            Self::open_delete_confirm(id, true, window, cx);
                         }),
                 )
             })
@@ -1259,9 +1305,12 @@ impl TaskView {
                     .gap_1()
                     .min_h(px(24.))
                     .items_center()
-                    .when(is_hovered || is_selected, |t| {
-                        t.child(Self::render_subtask_options_menu(cx, parent_id, sub))
-                    })
+                    .child(
+                        div()
+                            .opacity(if is_hovered || is_selected { 1.0 } else { 0.0 })
+                            .when(!(is_hovered || is_selected), |d| d.cursor_default())
+                            .child(Self::render_subtask_options_menu(cx, parent_id, sub)),
+                    )
                     .when(is_starred || is_hovered || is_selected, |t| {
                         let icon = if is_starred {
                             CustomIconName::Star
@@ -1360,14 +1409,25 @@ impl Render for TaskView {
             rest_els.push(self.render_pending_task_row(cx, task, &subs));
         }
 
-        let mut completed_items: Vec<(String, String, Option<chrono::NaiveDate>)> = Vec::new();
+        let mut completed_items: Vec<(String, String, Option<chrono::NaiveDate>, bool)> =
+            Vec::new();
         for task in &visible_tasks {
             if task.is_completed {
-                completed_items.push((task.id.clone(), task.title.clone(), task.completed_at));
+                completed_items.push((
+                    task.id.clone(),
+                    task.title.clone(),
+                    task.completed_at,
+                    false,
+                ));
             }
             for sub in subtasks_of(&task.id) {
                 if sub.is_completed {
-                    completed_items.push((sub.id.clone(), sub.title.clone(), sub.completed_at));
+                    completed_items.push((
+                        sub.id.clone(),
+                        sub.title.clone(),
+                        sub.completed_at,
+                        true,
+                    ));
                 }
             }
         }
@@ -1375,8 +1435,14 @@ impl Render for TaskView {
         let mut completed_els: Vec<AnyElement> = Vec::new();
         let completed_expanded = self.completed_expanded;
         if completed_expanded {
-            for (id, title, date) in &completed_items {
-                completed_els.push(self.render_completed_row(cx, id.clone(), title.clone(), *date));
+            for (id, title, date, is_subtask) in &completed_items {
+                completed_els.push(self.render_completed_row(
+                    cx,
+                    id.clone(),
+                    title.clone(),
+                    *date,
+                    *is_subtask,
+                ));
             }
         }
         let completed_label: String = t!(

@@ -351,8 +351,7 @@ fn download_update_sync(url: &str) -> Result<PathBuf, String> {
         .call()
         .map_err(|e| format!("request failed: {e}"))?;
     let mut file = fs::File::create(&dest).map_err(|e| format!("create {dest:?}: {e}"))?;
-    io::copy(&mut resp.body_mut().as_reader(), &mut file)
-        .map_err(|e| format!("download: {e}"))?;
+    io::copy(&mut resp.body_mut().as_reader(), &mut file).map_err(|e| format!("download: {e}"))?;
 
     Ok(dest)
 }

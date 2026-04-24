@@ -48,11 +48,11 @@ impl TitleBarView {
             )
             .separator()
             // check for updates
-            .item(PopupMenuItem::new(i18n_titlebar(cx, "check_update")).on_click(
-                |_, window, cx| {
+            .item(
+                PopupMenuItem::new(i18n_titlebar(cx, "check_update")).on_click(|_, window, cx| {
                     updater::check_and_show(window, cx);
-                },
-            ))
+                }),
+            )
     }
 }
 

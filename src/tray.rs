@@ -133,7 +133,11 @@ mod platform {
             }
         }
 
-        let text = if count > 9 { "9+".to_string() } else { count.to_string() };
+        let text = if count > 9 {
+            "9+".to_string()
+        } else {
+            count.to_string()
+        };
         let char_count = text.chars().count() as i32;
         let scale = (badge_size / 8).max(2);
         let char_w = 3 * scale;

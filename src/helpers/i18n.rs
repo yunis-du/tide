@@ -42,6 +42,11 @@ pub fn i18n_tray(cx: &App, key: &str) -> String {
     t!(format!("tray.{key}"), locale = l).into()
 }
 
+pub fn i18n_updater(cx: &App, key: &str) -> String {
+    let l = locale(cx);
+    t!(format!("updater.{key}"), locale = l).into()
+}
+
 pub fn i18n_tray_tooltip_count(cx: &App, count: usize) -> String {
     let l = locale(cx);
     t!("tray.tooltip_count", count = count.to_string(), locale = l.as_str()).into()

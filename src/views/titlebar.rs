@@ -3,12 +3,13 @@ use gpui_component::{
     IconName, Sizable, ThemeMode, TitleBar,
     button::{Button, ButtonVariants},
     h_flex,
-    menu::{DropdownMenu, PopupMenu},
+    menu::{DropdownMenu, PopupMenu, PopupMenuItem},
 };
 
 use crate::{
     helpers::{LocaleAction, ThemeAction, i18n_titlebar},
     state::TideStore,
+    updater,
 };
 
 pub struct TitleBarView;
@@ -46,6 +47,12 @@ impl TitleBarView {
                 Box::new(ThemeAction::System),
             )
             .separator()
+            // check for updates
+            .item(PopupMenuItem::new(i18n_titlebar(cx, "check_update")).on_click(
+                |_, window, cx| {
+                    updater::check_and_show(window, cx);
+                },
+            ))
     }
 }
 

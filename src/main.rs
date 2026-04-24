@@ -31,6 +31,7 @@ mod helpers;
 mod single_instance;
 mod state;
 mod tray;
+mod updater;
 mod views;
 
 #[cfg(target_os = "windows")]

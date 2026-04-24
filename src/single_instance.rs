@@ -55,7 +55,7 @@ pub fn acquire() -> anyhow::Result<Acquired> {
         let already_exists = GetLastError() == ERROR_ALREADY_EXISTS;
 
         if already_exists {
-            if let Ok(event) = OpenEventW(EVENT_MODIFY_STATE.0, false, &event_name) {
+            if let Ok(event) = OpenEventW(EVENT_MODIFY_STATE, false, &event_name) {
                 let _ = SetEvent(event);
                 let _ = CloseHandle(event);
             }

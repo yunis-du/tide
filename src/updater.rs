@@ -1,35 +1,4 @@
 //! Self-hosted update check and install.
-//!
-//! Flow:
-//! 1. Fetch a JSON manifest from a configurable URL.
-//! 2. Compare `version` against the running `CARGO_PKG_VERSION`.
-//! 3. If newer: show an "Update Available" dialog.
-//! 4. On user confirmation: stream-download the platform-specific asset to the
-//!    user's cache directory while showing a persistent notification.
-//! 5. When the download finishes: show an "Update Ready" dialog.
-//! 6. On user confirmation: spawn the platform installer and quit the app so
-//!    the installer can replace the running binary/bundle.
-//!
-//! The manifest URL defaults to a placeholder and can be overridden at compile
-//! time via the `TIDE_UPDATE_URL` env var, e.g.
-//! `TIDE_UPDATE_URL=https://example.com/tide/latest.json cargo build --release`.
-//!
-//! Expected manifest shape:
-//! ```json
-//! {
-//!   "version": "0.2.0",
-//!   "notes": "Release notes shown in the dialog.",
-//!   "pub_date": "2026-04-25T00:00:00Z",
-//!   "platforms": {
-//!     "macos-aarch64": { "url": "https://.../Tide_0.2.0_aarch64.dmg" },
-//!     "macos-x86_64":  { "url": "https://.../Tide_0.2.0_x64.dmg" },
-//!     "windows-x86_64": { "url": "https://.../Tide_0.2.0_x64-setup.exe" },
-//!     "linux-x86_64":   { "url": "https://.../Tide_0.2.0_amd64.AppImage" }
-//!   }
-//! }
-//! ```
-//! `pub_date` and `notes` are optional; `platforms` keys are `{os}-{arch}`.
-
 use std::{
     cmp::Ordering,
     collections::HashMap,

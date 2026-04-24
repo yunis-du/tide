@@ -1,16 +1,18 @@
 use chrono::{Datelike, NaiveDate};
 use gpui::{
-    AnyElement, App, Context, ElementId, Entity, FontWeight, IntoElement, Render, Styled,
-    Subscription, Window, anchored, deferred, div, prelude::*, px, rgba, white,
+    AnyElement, App, Context, ElementId, Entity, FocusHandle, FontWeight, IntoElement,
+    KeyDownEvent, MouseButton, Render, Styled, Subscription, Window, anchored, deferred, div,
+    prelude::*, px, relative, rgba, white,
 };
 use gpui_component::{
-    ActiveTheme, Icon, IconName, Sizable, WindowExt,
+    ActiveTheme, Icon, IconName, InteractiveElementExt, Sizable, WindowExt,
     button::{Button, ButtonVariant, ButtonVariants},
     calendar::{Calendar, CalendarEvent, CalendarState, Date},
     dialog::DialogButtonProps,
     h_flex,
     input::{Escape, InputEvent, InputState},
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
+    scroll::ScrollableElement,
     v_flex,
 };
 use rust_i18n::t;
@@ -113,6 +115,7 @@ pub struct TaskView {
 
     due_picker_calendar_state: Entity<CalendarState>,
     due_picker_for: Option<String>,
+    focus_handle: FocusHandle,
 
     batch_count: usize,
     subtask_batch_count: usize,
@@ -204,6 +207,7 @@ impl TaskView {
             pending_due_date: None,
             due_picker_calendar_state,
             due_picker_for: None,
+            focus_handle: cx.focus_handle(),
             batch_count: 0,
             subtask_batch_count: 0,
             completed_expanded: false,
@@ -341,9 +345,12 @@ impl TaskView {
         }
         this.selected_task_id = None;
         this.selected_subtask_id = None;
+        this.hovered_task_id = None;
+        this.hovered_subtask_id = None;
         update_status(cx, move |status, _| {
             status.set_show_add_task_btn(true);
         });
+        cx.notify();
     }
 
     fn enter_subtask(this: &mut Self, window: &mut Window, cx: &mut Context<Self>) {
@@ -457,6 +464,73 @@ impl TaskView {
         });
         cx.notify();
     }
+
+    fn edit_selected_item(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(selected_sub_id) = self.selected_subtask_id.clone() {
+            let sub = cx
+                .global::<TideDataStore>()
+                .read(cx)
+                .tasks
+                .iter()
+                .find(|t| t.id == selected_sub_id && !t.is_completed)
+                .cloned();
+            if let Some(subtask) = sub {
+                let parent_id = subtask.parent_id.clone().unwrap_or_default();
+                if !parent_id.is_empty() {
+                    Self::open_edit_subtask(self, &subtask, parent_id, window, cx);
+                    return;
+                }
+            }
+        }
+
+        let Some(selected_id) = self.selected_task_id.clone() else {
+            return;
+        };
+        let task = cx
+            .global::<TideDataStore>()
+            .read(cx)
+            .tasks
+            .iter()
+            .find(|t| t.id == selected_id && !t.is_completed)
+            .cloned();
+        let Some(task) = task else {
+            return;
+        };
+        let task_title = task.title.clone();
+        let task_details = task.details.clone().unwrap_or_default();
+        let task_due = task.due_date;
+        let task_id = task.id.clone();
+
+        Self::close_form(self, window, cx);
+
+        self.title_input.update(cx, |state, cx| {
+            state.set_value(&task_title, window, cx);
+            state.focus(window, cx);
+        });
+        self.details_input.update(cx, |state, cx| {
+            state.set_value(&task_details, window, cx);
+        });
+        self.set_pending_due_date(task_due, window, cx);
+
+        let id = task_id;
+        update_status(cx, move |status, _| {
+            status.set_edit_task_id(Some(id));
+            status.set_show_add_task_btn(true);
+        });
+        cx.notify();
+    }
+
+    fn delete_selected_item(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(selected_sub_id) = self.selected_subtask_id.clone() {
+            Self::open_delete_confirm(selected_sub_id, true, window, cx);
+            return;
+        }
+
+        let Some(selected_id) = self.selected_task_id.clone() else {
+            return;
+        };
+        Self::open_delete_confirm(selected_id, false, window, cx);
+    }
 }
 
 // render functions
@@ -486,6 +560,7 @@ impl TaskView {
     ) -> AnyElement {
         let task_id = task.id.clone();
         let tid_edit = task.id.clone();
+        let tid_selected = task.id.clone();
         let task_title = task.title.clone();
         let task_details = task.details.clone().unwrap_or_default();
         let task_due = task.due_date;
@@ -591,6 +666,14 @@ impl TaskView {
                             cx.notify();
                         }
                     }))
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.selected_task_id = Some(tid_selected.clone());
+                        cx.notify();
+                    }))
+                    .on_mouse_down_out(cx.listener(move |this, _, _window, cx| {
+                        this.selected_task_id = None;
+                        cx.notify();
+                    }))
                     .child(
                         RadioButton::new(task.id.clone())
                             .large()
@@ -607,7 +690,7 @@ impl TaskView {
                             .flex_1()
                             .gap_0p5()
                             .items_start()
-                            .on_click(cx.listener(move |this, _, window, cx| {
+                            .on_double_click(cx.listener(move |this, _, window, cx| {
                                 Self::close_form(this, window, cx);
 
                                 this.selected_task_id = Some(tid_edit.clone());
@@ -1151,6 +1234,7 @@ impl TaskView {
         sub: &Task,
     ) -> AnyElement {
         let sid_check = sub.id.clone();
+        let sid_selected = sub.id.clone();
         let sid_hover = sub.id.clone();
         let sid_star = sub.id.clone();
         let parent_for_drop = parent_id.to_string();
@@ -1235,6 +1319,14 @@ impl TaskView {
                     cx.notify();
                 }
             }))
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                this.selected_subtask_id = Some(sid_selected.clone());
+                cx.notify();
+            }))
+            .on_mouse_down_out(cx.listener(move |this, _, _window, cx| {
+                this.selected_subtask_id = None;
+                cx.notify();
+            }))
             .child(
                 RadioButton::new(sub.id.clone())
                     .large()
@@ -1251,7 +1343,7 @@ impl TaskView {
                     .flex_1()
                     .gap_0p5()
                     .items_start()
-                    .on_click(cx.listener(move |this, _, window, cx| {
+                    .on_double_click(cx.listener(move |this, _, window, cx| {
                         let parent = parent_for_click.clone();
                         Self::open_edit_subtask(this, &sub_for_edit, parent, window, cx);
                     }))
@@ -1513,49 +1605,114 @@ impl Render for TaskView {
             }));
 
         v_flex()
+            .h_full()
+            .min_h_0()
+            .gap_2()
+            .track_focus(&self.focus_handle)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, _| {
+                    this.focus_handle.focus(window);
+                }),
+            )
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                let status = cx.global::<TideStore>().read(cx).status();
+                let is_editing =
+                    status.edit_task_id().is_some() || status.edit_subtask_id().is_some();
+                let is_adding_subtask = status.adding_subtask_for().is_some();
+                if is_editing || is_adding_subtask {
+                    return;
+                }
+
+                match event.keystroke.key.as_str() {
+                    "enter" => {
+                        this.edit_selected_item(window, cx);
+                        cx.stop_propagation();
+                    }
+                    "backspace" | "delete" => {
+                        this.delete_selected_item(window, cx);
+                        cx.stop_propagation();
+                    }
+                    _ => {}
+                }
+            }))
             .on_action(cx.listener(move |this, _: &Escape, window, cx| {
                 Self::close_form(this, window, cx);
             }))
-            .children(batch_els)
-            .when(!show_add_task_btn, |t| t.child(task_form))
-            .when(show_add_task_btn, |t| t.child(add_task_btn))
-            .children(rest_els)
-            .child(end_drop_zone)
-            .when(!completed_items.is_empty(), |t| {
-                t.child(
-                    h_flex()
-                        .id("completed-hdr")
-                        .mt_2()
-                        .px_2()
-                        .py_1()
-                        .gap_2()
-                        .items_center()
-                        .cursor_pointer()
-                        .rounded_lg()
-                        .hover(|s| s.bg(rgba(0x00000010)))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.completed_expanded = !this.completed_expanded;
-                            cx.notify();
-                        }))
-                        .child(
-                            Icon::new(if completed_expanded {
-                                IconName::ChevronDown
-                            } else {
-                                IconName::ChevronRight
-                            })
-                            .size_4()
-                            .text_color(muted_fg),
+            .child(
+                v_flex()
+                    .id("pending-panel")
+                    .min_h_0()
+                    .flex_1()
+                    .when(completed_expanded, |t| {
+                        t.flex_basis(relative(0.6)).flex_shrink_0()
+                    })
+                    .overflow_hidden()
+                    .when(show_add_task_btn, |t| t.child(add_task_btn))
+                    .child(
+                        v_flex()
+                            .id("pending-list")
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scrollbar()
+                            .children(batch_els)
+                            .when(!show_add_task_btn, |t| t.child(task_form))
+                            .children(rest_els)
+                            .child(end_drop_zone),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .id("completed-panel")
+                    .mt_2()
+                    .when(completed_expanded, |t| {
+                        t.min_h_0()
+                            .flex_basis(relative(0.4))
+                            .flex_shrink_0()
+                            .overflow_hidden()
+                    })
+                    .child(
+                        h_flex()
+                            .id("completed-hdr")
+                            .px_2()
+                            .py_1()
+                            .gap_2()
+                            .items_center()
+                            .cursor_pointer()
+                            .rounded_lg()
+                            .hover(|s| s.bg(rgba(0x00000010)))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.completed_expanded = !this.completed_expanded;
+                                cx.notify();
+                            }))
+                            .child(
+                                Icon::new(if completed_expanded {
+                                    IconName::ChevronDown
+                                } else {
+                                    IconName::ChevronRight
+                                })
+                                .size_4()
+                                .text_color(muted_fg),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight(500.))
+                                    .text_color(fg)
+                                    .child(completed_label),
+                            ),
+                    )
+                    .when(completed_expanded, |t| {
+                        t.child(
+                            v_flex()
+                                .id("completed-list")
+                                .flex_1()
+                                .min_h_0()
+                                .overflow_y_scrollbar()
+                                .children(completed_els),
                         )
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight(500.))
-                                .text_color(fg)
-                                .child(completed_label),
-                        ),
-                )
-                .children(completed_els)
-            })
+                    }),
+            )
             .into_any_element()
     }
 }

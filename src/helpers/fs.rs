@@ -6,14 +6,19 @@ use directories::{ProjectDirs, UserDirs};
 use crate::PKG_NAME;
 
 pub fn get_or_create_config_path() -> Result<PathBuf> {
-    let Some(project_dirs) = ProjectDirs::from("com", "yunisdu", PKG_NAME) else {
+    #[cfg(target_os = "windows")]
+    let project_dirs = ProjectDirs::from("", "", PKG_NAME);
+    #[cfg(not(target_os = "windows"))]
+    let project_dirs = ProjectDirs::from("com", "yunisdu", PKG_NAME);
+
+    let Some(project_dirs) = project_dirs else {
         bail!("project directories not found");
     };
 
-    let config_dir = project_dirs.config_dir();
+    let config_dir = project_dirs.config_dir().to_path_buf();
 
     if !config_dir.exists() {
-        fs::create_dir_all(config_dir)?;
+        fs::create_dir_all(&config_dir)?;
     }
 
     let config_path = config_dir.join("tide.toml");
@@ -27,7 +32,11 @@ pub fn get_or_create_config_path() -> Result<PathBuf> {
 
 pub fn get_or_create_data_path() -> Result<PathBuf> {
     let home_dir = get_home_directory()?;
-    let data_path = home_dir.join(".tide").join("data.json");
+    let data_dir = home_dir.join(".tide");
+    if !data_dir.exists() {
+        fs::create_dir_all(&data_dir)?;
+    }
+    let data_path = data_dir.join("data.json");
 
     if !data_path.exists() {
         std::fs::write(&data_path, "")?;

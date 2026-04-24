@@ -63,9 +63,14 @@ impl Render for ContentView {
                     .min_h_0()
                     .px_4()
                     .pb_4()
-                    .overflow_y_scroll()
                     .gap_1()
-                    .child(self.task_view.clone()),
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_hidden()
+                            .child(self.task_view.clone()),
+                    ),
             )
     }
 }

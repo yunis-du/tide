@@ -244,15 +244,19 @@ fn main() {
     let app = Application::new().with_assets(assets::Assets);
 
     // Load persisted config; fall back to defaults on error.
-    let app_config = load_config().unwrap_or_default();
-    let mut task_data = load_data().unwrap_or_default();
-
-    let mut app_config = app_config;
+    let mut app_config = load_config().unwrap_or_default();
     if app_config.locale.is_none() {
         app_config.locale = Some(default_ui_locale().to_string());
         let _ = save_config(&app_config);
     }
 
+    // Apply the locale before any data load: first-run creates a default
+    // task group whose name is resolved via `t!`, so the locale must be
+    // set or the name falls back to English.
+    let locale = app_config.locale.as_deref().unwrap_or("en");
+    rust_i18n::set_locale(locale);
+
+    let mut task_data = load_data().unwrap_or_default();
     if task_data.task_groups.is_empty() {
         task_data
             .task_groups

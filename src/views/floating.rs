@@ -201,6 +201,9 @@ pub fn open_pinned_group_window(cx: &mut App, group_id: String) {
     let opened = cx.open_window(options, |window, cx| {
         let id = window.window_handle().window_id();
         register_floating(id);
+        // On Windows, `WindowKind::PopUp` doesn't imply WS_EX_TOPMOST, so we
+        // promote the HWND to topmost ourselves. No-op on other platforms.
+        crate::set_window_always_on_top(window);
         window.on_window_should_close(cx, move |_, _| {
             unregister_floating(id);
             true

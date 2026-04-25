@@ -61,6 +61,33 @@ fn hide_on_windows(window: &Window) {
     }
 }
 
+/// Force the platform window to stay above all other windows. GPUI's
+/// `WindowKind::PopUp` already does this on macOS (via `NSPopUpWindowLevel`)
+/// but on Windows it only sets `WS_EX_TOOLWINDOW`, which keeps it out of the
+/// taskbar but doesn't make it topmost.
+pub(crate) fn set_window_always_on_top(_window: &Window) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
+        };
+
+        if let Some(hwnd) = window_hwnd(_window) {
+            unsafe {
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+            }
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 pub(crate) fn show_on_windows(window: &Window) {
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -235,6 +262,14 @@ fn main() {
     app.run(move |cx| {
         gpui_component::init(cx);
         gpui_component::set_locale(app_config.locale.as_deref().unwrap_or("en"));
+
+        // Drop the previous run's cached installer (if any) on startup. We
+        // can't safely delete it right after spawning the installer process
+        // (Windows holds the .exe lock; macOS may still be reading the .dmg),
+        // so the cleanup happens here once the new version is running.
+        cx.background_executor()
+            .spawn(async { updater::clear_update_cache() })
+            .detach();
 
         cx.activate(true);
 

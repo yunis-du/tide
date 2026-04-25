@@ -2,26 +2,27 @@
 use std::{
     cmp::Ordering,
     collections::HashMap,
-    fs, io,
+    fs,
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     process::Command,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering},
+    },
     time::Duration,
 };
 
 use directories::ProjectDirs;
-use gpui::{App, Window, div, prelude::*, px};
+use gpui::{App, Context, IntoElement, Render, Window, div, prelude::*, px};
 use gpui_component::{
-    ActiveTheme, WindowExt, dialog::DialogButtonProps, notification::Notification,
+    ActiveTheme, WindowExt, dialog::DialogButtonProps, progress::Progress, v_flex,
 };
 use rust_i18n::t;
 use serde::Deserialize;
 use tracing::{error, warn};
 
 use crate::{helpers::i18n_updater, state::TideStore};
-
-/// Marker type so the "downloading" notification can be dismissed by id once
-/// the background download completes.
-struct UpdatingNotification;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const REQUEST_TIMEOUT_SECS: u64 = 10;
@@ -248,38 +249,147 @@ fn open_available_dialog(
                 let download_url = download_url.clone();
                 let version = version.clone();
                 move |_, window, cx| {
+                    // Close the "available" dialog ourselves so the framework's
+                    // post-on_ok close doesn't pop the progress dialog that
+                    // `start_update` is about to push.
+                    window.close_dialog(cx);
                     start_update(window, cx, version.clone(), download_url.clone());
-                    true
+                    false
                 }
             })
     });
+}
+
+/// View that renders a live progress bar driven by atomics shared with the
+/// background download task.
+struct ProgressView {
+    desc: String,
+    preparing: String,
+    downloaded: Arc<AtomicU64>,
+    total: Arc<AtomicU64>,
+}
+
+impl Render for ProgressView {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let downloaded = self.downloaded.load(AtomicOrdering::Relaxed);
+        let total = self.total.load(AtomicOrdering::Relaxed);
+        let percent = if total > 0 {
+            (downloaded as f32 / total as f32 * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+
+        let detail = if total > 0 {
+            format!(
+                "{} / {}  ({:.0}%)",
+                format_bytes(downloaded),
+                format_bytes(total),
+                percent
+            )
+        } else if downloaded > 0 {
+            format_bytes(downloaded)
+        } else {
+            self.preparing.clone()
+        };
+
+        v_flex()
+            .gap_3()
+            .child(div().text_sm().child(self.desc.clone()))
+            .child(Progress::new().value(percent))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(detail),
+            )
+    }
+}
+
+fn format_bytes(b: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    let v = b as f64;
+    if v < KB {
+        format!("{} B", b)
+    } else if v < MB {
+        format!("{:.1} KB", v / KB)
+    } else if v < GB {
+        format!("{:.1} MB", v / MB)
+    } else {
+        format!("{:.2} GB", v / GB)
+    }
 }
 
 /// Kick off the background download and surface progress/result to the user.
 fn start_update(window: &mut Window, cx: &mut App, version: String, url: String) {
     let handle = window.window_handle();
     let locale = cx.global::<TideStore>().read(cx).locale().to_string();
-    let downloading_msg = t!(
-        "updater.downloading_msg",
+    let desc = t!(
+        "updater.downloading_progress",
         version = version.as_str(),
         locale = locale.as_str()
     )
     .into_owned();
+    let preparing = i18n_updater(cx, "preparing");
+    let title = i18n_updater(cx, "downloading_title");
 
-    window.push_notification(
-        Notification::info(downloading_msg)
-            .id::<UpdatingNotification>()
-            .autohide(false),
-        cx,
-    );
+    let downloaded = Arc::new(AtomicU64::new(0));
+    let total = Arc::new(AtomicU64::new(0));
+    let done = Arc::new(AtomicBool::new(false));
+
+    let progress_view = cx.new(|_| ProgressView {
+        desc,
+        preparing,
+        downloaded: downloaded.clone(),
+        total: total.clone(),
+    });
+
+    {
+        let progress_view = progress_view.clone();
+        window.open_dialog(cx, move |dialog, window, _cx| {
+            let dialog_width = px(420.);
+            let dialog_height = px(180.);
+            let margin_top = ((window.viewport_size().height - dialog_height) / 2.).max(px(0.));
+            dialog
+                .title(title.clone())
+                .child(progress_view.clone())
+                .w(dialog_width)
+                .margin_top(margin_top)
+                .close_button(false)
+                .overlay_closable(false)
+                .keyboard(false)
+        });
+    }
+
+    // Tick the view so the progress bar repaints while bytes flow in.
+    let weak = progress_view.downgrade();
+    let done_for_poll = done.clone();
+    cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
+            if weak.update(cx, |_, cx| cx.notify()).is_err() {
+                break;
+            }
+            if done_for_poll.load(AtomicOrdering::Relaxed) {
+                break;
+            }
+        }
+    })
+    .detach();
 
     cx.spawn(async move |cx| {
+        let dl = downloaded.clone();
+        let tt = total.clone();
         let result = cx
-            .background_spawn(async move { download_update_sync(&url) })
+            .background_spawn(async move { download_with_progress(&url, dl, tt) })
             .await;
+        done.store(true, AtomicOrdering::Relaxed);
 
         let _ = handle.update(cx, |_any, window, cx| {
-            window.remove_notification::<UpdatingNotification>(cx);
+            window.close_dialog(cx);
             match result {
                 Ok(path) => open_ready_dialog(window, cx, version, path),
                 Err(e) => open_download_failed_dialog(window, cx, e),
@@ -297,10 +407,42 @@ fn update_cache_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Best-effort: remove every file under the `updates/` cache directory.
+/// Called both before a fresh download (to drop stale installers) and at app
+/// startup (so the new version cleans up after itself once the user has
+/// installed it).
+pub fn clear_update_cache() {
+    let dir = match update_cache_dir() {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let entries = match fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if let Err(e) = fs::remove_file(&path) {
+            warn!(?path, error = %e, "failed to remove cached installer");
+        }
+    }
+}
+
 /// Stream the asset to `cache_dir/<filename>` using the last path segment of
-/// the URL as the on-disk name. No timeout: updates can be large.
-fn download_update_sync(url: &str) -> Result<PathBuf, String> {
+/// the URL as the on-disk name. No timeout: updates can be large. Reports
+/// progress via the shared atomics so the UI can render a live progress bar.
+fn download_with_progress(
+    url: &str,
+    downloaded: Arc<AtomicU64>,
+    total: Arc<AtomicU64>,
+) -> Result<PathBuf, String> {
     let cache_dir = update_cache_dir()?;
+    // Drop any leftover installer from a previous (possibly aborted) download
+    // so the cache stays a single-file directory.
+    clear_update_cache();
     let file_name = url
         .rsplit('/')
         .next()
@@ -319,8 +461,24 @@ fn download_update_sync(url: &str) -> Result<PathBuf, String> {
         .get(url)
         .call()
         .map_err(|e| format!("request failed: {e}"))?;
+    if let Some(len) = resp.body().content_length() {
+        total.store(len, AtomicOrdering::Relaxed);
+    }
+
     let mut file = fs::File::create(&dest).map_err(|e| format!("create {dest:?}: {e}"))?;
-    io::copy(&mut resp.body_mut().as_reader(), &mut file).map_err(|e| format!("download: {e}"))?;
+    let mut reader = resp.body_mut().as_reader();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(format!("download: {e}")),
+        };
+        file.write_all(&buf[..n])
+            .map_err(|e| format!("write: {e}"))?;
+        downloaded.fetch_add(n as u64, AtomicOrdering::Relaxed);
+    }
 
     Ok(dest)
 }

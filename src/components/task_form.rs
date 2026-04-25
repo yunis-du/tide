@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use chrono::{Local, NaiveDate};
 use gpui::{
-    App, Corner, ElementId, Entity, Hsla, InteractiveElement, IntoElement, MouseDownEvent,
-    ParentElement, RenderOnce, StatefulInteractiveElement, Styled, Window, div,
+    App, Corner, ElementId, Entity, Hsla, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, ParentElement, RenderOnce, StatefulInteractiveElement, Styled, Window, div,
     prelude::FluentBuilder, px, rgba,
 };
 use gpui_component::{
@@ -157,6 +157,9 @@ impl RenderOnce for TaskForm {
             .border_1()
             .border_color(border)
             .gap_1()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
             .when_some(mouse_out, |this, h| {
                 this.on_mouse_down_out(move |ev, window, cx| {
                     if !is_calendar_open {

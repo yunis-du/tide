@@ -20,7 +20,7 @@ use crate::{
     views::{ContentView, SidebarView, TitleBarView},
 };
 
-use crate::views::floating::{floating_window_ids, has_floating_windows};
+use crate::views::floating::floating_window_ids;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -74,7 +74,7 @@ pub(crate) fn set_window_always_on_top(_window: &Window) {
 
         if let Some(hwnd) = window_hwnd(_window) {
             unsafe {
-                let _ = SetWindowPos(
+                if let Err(e) = SetWindowPos(
                     hwnd,
                     Some(HWND_TOPMOST),
                     0,
@@ -82,7 +82,9 @@ pub(crate) fn set_window_always_on_top(_window: &Window) {
                     0,
                     0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                );
+                ) {
+                    tracing::warn!(error = %e, "failed to make floating window topmost");
+                }
             }
         }
     }
@@ -216,8 +218,8 @@ pub(crate) fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Root
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
-                    if has_floating_windows() {
-                        _window.minimize_window();
+                    if !floating_window_ids().is_empty() {
+                        _window.remove_window();
                     } else {
                         _cx.hide();
                     }

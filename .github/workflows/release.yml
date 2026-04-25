@@ -192,11 +192,11 @@ jobs:
                       if msg: opts.append("- " + msg[0].upper() + msg[1:])
 
           with open("grouped_notes.md", "w", encoding="utf-8") as f:
-              if features:
+              if feat:
                   f.write("### ✨ New Features\n\n" + "\n".join(features) + "\n\n")
-              if fixes:
+              if fix:
                   f.write("### 🐛 Bug Fixes\n\n" + "\n".join(fixes) + "\n\n")
-              if opts:
+              if optimized:
                   f.write("### 🔧 Optimizations\n\n" + "\n".join(opts) + "\n\n")
           '
 

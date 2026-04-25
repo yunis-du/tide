@@ -1,8 +1,8 @@
 use chrono::{Datelike, NaiveDate};
 use gpui::{
     AnyElement, App, Context, ElementId, Entity, FocusHandle, FontWeight, IntoElement,
-    KeyDownEvent, MouseButton, Render, Styled, Subscription, Window, anchored, deferred, div,
-    prelude::*, px, relative, rgba, white,
+    KeyDownEvent, MouseButton, Render, ScrollHandle, Styled, Subscription, Window, anchored,
+    deferred, div, prelude::*, px, relative, rgba, white,
 };
 use gpui_component::{
     ActiveTheme, Icon, IconName, InteractiveElementExt, Sizable, WindowExt,
@@ -12,7 +12,7 @@ use gpui_component::{
     h_flex,
     input::{Escape, InputEvent, InputState},
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
-    scroll::ScrollableElement,
+    scroll::{ScrollableElement, Scrollbar},
     v_flex,
 };
 use rust_i18n::t;
@@ -116,6 +116,7 @@ pub struct TaskView {
     due_picker_calendar_state: Entity<CalendarState>,
     due_picker_for: Option<String>,
     focus_handle: FocusHandle,
+    pending_scroll_handle: ScrollHandle,
 
     batch_count: usize,
     subtask_batch_count: usize,
@@ -208,6 +209,7 @@ impl TaskView {
             due_picker_calendar_state,
             due_picker_for: None,
             focus_handle: cx.focus_handle(),
+            pending_scroll_handle: ScrollHandle::new(),
             batch_count: 0,
             subtask_batch_count: 0,
             completed_expanded: false,
@@ -260,6 +262,7 @@ impl TaskView {
         update_status(cx, move |status, _| {
             status.set_show_add_task_btn(false);
         });
+        self.pending_scroll_handle.scroll_to_top_of_item(0);
         cx.notify();
     }
 
@@ -1654,11 +1657,33 @@ impl Render for TaskView {
                             .id("pending-list")
                             .flex_1()
                             .min_h_0()
-                            .overflow_y_scrollbar()
-                            .children(batch_els)
-                            .when(!show_add_task_btn, |t| t.child(task_form))
-                            .children(rest_els)
-                            .child(end_drop_zone),
+                            .relative()
+                            .child(
+                                v_flex()
+                                    .id("pending-scroll-area")
+                                    .flex()
+                                    .size_full()
+                                    .flex_col()
+                                    .overflow_y_scroll()
+                                    .track_scroll(&self.pending_scroll_handle)
+                                    .child(
+                                        v_flex()
+                                            .flex_1()
+                                            .children(batch_els)
+                                            .when(!show_add_task_btn, |t| t.child(task_form))
+                                            .children(rest_els)
+                                            .child(end_drop_zone),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .absolute()
+                                    .top_0()
+                                    .left_0()
+                                    .right_0()
+                                    .bottom_0()
+                                    .child(Scrollbar::vertical(&self.pending_scroll_handle)),
+                            ),
                     ),
             )
             .child(

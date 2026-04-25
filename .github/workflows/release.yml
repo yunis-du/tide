@@ -10,6 +10,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  DOWNLOAD_BASE_URL: http://download.yunisdu.com/tide
 
 jobs:
   # ====================
@@ -126,20 +127,42 @@ jobs:
 
       - name: Collect all files
         run: |
-          mkdir -p release
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.deb" -o -name "*.rpm" -o -name "*.dmg" \) -exec cp {} release/ \;
-          # Only copy NSIS installer (exclude raw exe)
-          find artifacts -type f -name "*setup*.exe" -exec cp {} release/ \;
-          find artifacts -type f -name "*installer*.exe" -exec cp {} release/ \;
-          # Normalize architecture suffix in filenames
-          for f in release/*_x64*; do
-            [ -e "$f" ] || continue
-            mv "$f" "${f//_x64/_x86_64}"
-          done
-          for f in release/*_arm64*; do
-            [ -e "$f" ] || continue
-            mv "$f" "${f//_arm64/_aarch64}"
-          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import sys
+
+          release_dir = Path("release")
+          release_dir.mkdir(exist_ok=True)
+
+          def copy_one(folder, suffix, output_name, predicate=lambda name: True):
+              source_dir = Path("artifacts") / folder
+              matches = sorted(
+                  path for path in source_dir.glob(f"*{suffix}")
+                  if predicate(path.name.lower())
+              )
+              if len(matches) != 1:
+                  print(f"Expected exactly one {suffix} artifact in {source_dir}, found {len(matches)}", file=sys.stderr)
+                  for match in matches:
+                      print(f"  - {match}", file=sys.stderr)
+                  sys.exit(1)
+              shutil.copy2(matches[0], release_dir / output_name)
+
+          copy_one("tide-macos-aarch64", ".dmg", "Tide_aarch64.dmg")
+          copy_one("tide-macos-x86_64", ".dmg", "Tide_x86_64.dmg")
+          copy_one(
+              "tide-windows-aarch64",
+              ".exe",
+              "tide_aarch64-setup.exe",
+              lambda name: "setup" in name or "installer" in name,
+          )
+          copy_one(
+              "tide-windows-x86_64",
+              ".exe",
+              "tide_x86_64-setup.exe",
+              lambda name: "setup" in name or "installer" in name,
+          )
+          PY
           ls -la release/
 
       - name: Generate checksums
@@ -203,13 +226,93 @@ jobs:
           # 3. Rename grouped notes to release notes
           mv grouped_notes.md release_notes.md
 
+      - name: Generate latest manifest
+        run: |
+          python3 - <<'PY'
+          from datetime import datetime, timezone
+          from pathlib import Path
+          import json
+          import os
+
+          version = os.environ["GITHUB_REF_NAME"].removeprefix("v")
+          base_url = os.environ["DOWNLOAD_BASE_URL"].rstrip("/")
+          notes = Path("release_notes.md").read_text(encoding="utf-8").strip()
+
+          manifest = {
+              "version": version,
+              "notes": notes,
+              "pub_date": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+              "platforms": {
+                  "macos-aarch64": {
+                      "url": f"{base_url}/{version}/Tide_aarch64.dmg",
+                  },
+                  "macos-x86_64": {
+                      "url": f"{base_url}/{version}/Tide_x86_64.dmg",
+                  },
+                  "windows-x86_64": {
+                      "url": f"{base_url}/{version}/tide_x86_64-setup.exe",
+                  },
+                  "windows-aarch64": {
+                      "url": f"{base_url}/{version}/tide_aarch64-setup.exe",
+                  },
+              },
+          }
+
+          Path("latest.json").write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          python3 -m json.tool latest.json
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             release/*
+            latest.json
           body_path: release_notes.md
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure SSH
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_HOST:?Missing DEPLOY_HOST secret}"
+          : "${DEPLOY_KEY:?Missing DEPLOY_KEY secret}"
+
+          port="${DEPLOY_PORT:-22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$port" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload to download server
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_ROOT: ${{ secrets.DEPLOY_ROOT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_HOST:?Missing DEPLOY_HOST secret}"
+          : "${DEPLOY_ROOT:?Missing DEPLOY_ROOT secret}"
+          : "${DEPLOY_USER:?Missing DEPLOY_USER secret}"
+
+          version="${GITHUB_REF_NAME#v}"
+          port="${DEPLOY_PORT:-22}"
+          remote="${DEPLOY_USER}@${DEPLOY_HOST}"
+          remote_version_dir="${DEPLOY_ROOT}/tide/${version}"
+
+          ssh -i ~/.ssh/deploy_key -p "$port" "$remote" "mkdir -p '$remote_version_dir'"
+          scp -i ~/.ssh/deploy_key -P "$port" release/* "$remote:$remote_version_dir/"
+          scp -i ~/.ssh/deploy_key -P "$port" latest.json "$remote:${DEPLOY_ROOT}/tide/latest.json"

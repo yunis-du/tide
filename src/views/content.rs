@@ -6,9 +6,15 @@ use crate::{
     state::{SidebarSelection, TideDataStore},
 };
 
-use super::content::task::TaskView;
+use super::content::view::TaskView;
 
-mod task;
+mod actions;
+mod drag;
+mod menu;
+mod render;
+mod row_completed;
+mod row_pending;
+mod view;
 
 pub struct ContentView {
     task_view: Entity<TaskView>,

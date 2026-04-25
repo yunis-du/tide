@@ -20,6 +20,8 @@ use crate::{
     views::{ContentView, SidebarView, TitleBarView},
 };
 
+use crate::views::floating::{floating_window_ids, has_floating_windows};
+
 rust_i18n::i18n!("locales", fallback = "en");
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -78,16 +80,32 @@ pub(crate) fn show_on_windows(window: &Window) {
 }
 
 fn hide_to_tray(cx: &mut App) {
+    let floating: std::collections::HashSet<_> = floating_window_ids().into_iter().collect();
+
     #[cfg(target_os = "windows")]
     {
         for handle in cx.windows() {
+            if floating.contains(&handle.window_id()) {
+                continue;
+            }
             let _ = handle.update(cx, |_, window, _| hide_on_windows(window));
         }
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        cx.hide();
+        if floating.is_empty() {
+            cx.hide();
+        } else {
+            // Some groups are pinned; minimize the main window only so the
+            // floating notes stay on screen.
+            for handle in cx.windows() {
+                if floating.contains(&handle.window_id()) {
+                    continue;
+                }
+                let _ = handle.update(cx, |_, window, _| window.minimize_window());
+            }
+        }
     }
 }
 
@@ -171,7 +189,11 @@ pub(crate) fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Root
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
-                    _cx.hide();
+                    if has_floating_windows() {
+                        _window.minimize_window();
+                    } else {
+                        _cx.hide();
+                    }
                 }
                 false
             });

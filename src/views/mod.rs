@@ -1,5 +1,6 @@
 mod about;
 mod content;
+pub mod floating;
 mod sidebar;
 mod titlebar;
 

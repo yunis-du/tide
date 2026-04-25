@@ -8,7 +8,7 @@ use gpui_component::{
     dialog::DialogButtonProps,
     h_flex,
     input::{Escape, Input, InputEvent, InputState},
-    menu::{DropdownMenu, PopupMenu, PopupMenuItem},
+    menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
     v_flex,
 };
 
@@ -19,6 +19,8 @@ use crate::{
         update_data_and_save,
     },
 };
+
+use super::floating::open_pinned_group_window;
 
 pub struct SidebarView {
     hovered_group_id: Option<String>,
@@ -194,6 +196,7 @@ impl SidebarView {
         inp: Entity<InputState>,
     ) -> AnyElement {
         let rename_label = i18n_sidebar(cx, "rename");
+        let pin_label = i18n_sidebar(cx, "pin_to_desktop");
         let delete_label = i18n_sidebar(cx, "delete_group");
         let id = id.to_string();
         let group_name = group_name.to_string();
@@ -221,6 +224,16 @@ impl SidebarView {
                         });
                     }
                 }))
+                .item(
+                    PopupMenuItem::new(pin_label.clone())
+                        .icon(Icon::new(IconName::ExternalLink))
+                        .on_click({
+                            let id = id.clone();
+                            move |_, _, cx| {
+                                open_pinned_group_window(cx, id.clone());
+                            }
+                        }),
+                )
                 .separator()
                 .item(PopupMenuItem::new(delete_label.clone()).on_click({
                     let id = id.clone();
@@ -305,6 +318,8 @@ impl SidebarView {
             };
 
             let editing_id_for_click = editing_group_id.clone();
+            let pin_label = i18n_sidebar(cx, "pin_to_desktop");
+            let group_id_for_pin = group.id.clone();
 
             let group_row = h_flex()
                 .id(ElementId::Name(format!("group-{}", group.id).into()))
@@ -375,6 +390,16 @@ impl SidebarView {
                                 group.name.as_str(),
                                 group_input.clone(),
                             )),
+                    )
+                })
+                .context_menu(move |menu, _window, _cx| {
+                    let id = group_id_for_pin.clone();
+                    menu.item(
+                        PopupMenuItem::new(pin_label.clone())
+                            .icon(Icon::new(IconName::ExternalLink))
+                            .on_click(move |_, _, cx| {
+                                open_pinned_group_window(cx, id.clone());
+                            }),
                     )
                 });
 

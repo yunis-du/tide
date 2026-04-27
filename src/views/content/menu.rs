@@ -1,5 +1,7 @@
+use chrono::NaiveDate;
 use gpui::{
-    AnyElement, Context, ElementId, IntoElement, Styled, anchored, deferred, div, prelude::*, px,
+    AnyElement, Context, ElementId, IntoElement, Styled, WeakEntity, Window, anchored, deferred,
+    div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme, Icon, IconName, Sizable,
@@ -51,15 +53,118 @@ impl TaskView {
         )
     }
 
+    pub(super) fn task_menu_builder(
+        weak: WeakEntity<Self>,
+        task_id: String,
+        task_due: Option<NaiveDate>,
+    ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+        move |menu, _window, cx| {
+            let add_due_label = i18n_content(cx, "add_due_date");
+            let add_subtask_label = i18n_content(cx, "add_subtask");
+            let delete_label = i18n_content(cx, "delete");
+
+            menu.item(
+                PopupMenuItem::new(add_due_label)
+                    .icon(Icon::new(IconName::Calendar))
+                    .on_click({
+                        let weak = weak.clone();
+                        let task_id = task_id.clone();
+                        move |_, window, cx| {
+                            let id = task_id.clone();
+                            weak.update(cx, move |this, cx| {
+                                this.due_picker_for = Some(id);
+                                this.due_picker_calendar_state.update(cx, |state, cx| {
+                                    let d = match task_due {
+                                        Some(d) => Date::Single(Some(d)),
+                                        None => Date::Single(None),
+                                    };
+                                    state.set_date(d, window, cx);
+                                });
+                                cx.notify();
+                            })
+                            .ok();
+                        }
+                    }),
+            )
+            .item(
+                PopupMenuItem::new(add_subtask_label)
+                    .icon(Icon::new(IconName::Plus))
+                    .on_click({
+                        let weak = weak.clone();
+                        let task_id = task_id.clone();
+                        move |_, window, cx| {
+                            let pid = task_id.clone();
+                            weak.update(cx, |this, cx| {
+                                Self::open_add_subtask(this, pid, window, cx);
+                            })
+                            .ok();
+                        }
+                    }),
+            )
+            .separator()
+            .item(
+                PopupMenuItem::new(delete_label)
+                    .icon(Icon::new(IconName::Delete))
+                    .on_click({
+                        let task_id = task_id.clone();
+                        move |_, window, cx| {
+                            let id = task_id.clone();
+                            Self::open_delete_confirm(id, false, window, cx);
+                        }
+                    }),
+            )
+        }
+    }
+
+    pub(super) fn subtask_menu_builder(
+        weak: WeakEntity<Self>,
+        sub_id: String,
+        sub_due: Option<NaiveDate>,
+    ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+        move |menu, _window, cx| {
+            let add_due_label = i18n_content(cx, "add_due_date");
+            let delete_label = i18n_content(cx, "delete");
+
+            menu.item(
+                PopupMenuItem::new(add_due_label)
+                    .icon(Icon::new(IconName::Calendar))
+                    .on_click({
+                        let weak = weak.clone();
+                        let sub_id = sub_id.clone();
+                        move |_, window, cx| {
+                            let id = sub_id.clone();
+                            weak.update(cx, move |this, cx| {
+                                this.due_picker_for = Some(id);
+                                this.due_picker_calendar_state.update(cx, |state, cx| {
+                                    let d = match sub_due {
+                                        Some(d) => Date::Single(Some(d)),
+                                        None => Date::Single(None),
+                                    };
+                                    state.set_date(d, window, cx);
+                                });
+                                cx.notify();
+                            })
+                            .ok();
+                        }
+                    }),
+            )
+            .separator()
+            .item(
+                PopupMenuItem::new(delete_label)
+                    .icon(Icon::new(IconName::Delete))
+                    .on_click({
+                        let sub_id = sub_id.clone();
+                        move |_, window, cx| {
+                            let id = sub_id.clone();
+                            Self::open_delete_confirm(id, true, window, cx);
+                        }
+                    }),
+            )
+        }
+    }
+
     pub(super) fn render_options_menu(cx: &mut Context<Self>, task: &Task) -> AnyElement {
-        let tid_due = task.id.clone();
-        let tid_del = task.id.clone();
-        let tid_sub = task.id.clone();
         let tid_selected = task.id.clone();
-        let task_due = task.due_date;
-        let add_due_label = i18n_content(cx, "add_due_date");
-        let add_subtask_label = i18n_content(cx, "add_subtask");
-        let delete_label = i18n_content(cx, "delete");
         let weak = cx.entity().downgrade();
 
         Button::new(ElementId::Name(format!("task-menu-{}", task.id).into()))
@@ -73,53 +178,11 @@ impl TaskView {
                     cx.notify();
                 }
             }))
-            .dropdown_menu(move |menu: PopupMenu, _, _| {
-                let del = tid_del.clone();
-                let due = tid_due.clone();
-                let sub = tid_sub.clone();
-                let weak_due = weak.clone();
-                let weak = weak.clone();
-                menu.item(
-                    PopupMenuItem::new(add_due_label.clone())
-                        .icon(Icon::new(IconName::Calendar))
-                        .on_click(move |_, window, cx| {
-                            let id = due.clone();
-                            weak_due
-                                .update(cx, move |this, cx| {
-                                    this.due_picker_for = Some(id);
-                                    this.due_picker_calendar_state.update(cx, |state, cx| {
-                                        let d = match task_due {
-                                            Some(d) => Date::Single(Some(d)),
-                                            None => Date::Single(None),
-                                        };
-                                        state.set_date(d, window, cx);
-                                    });
-                                    cx.notify();
-                                })
-                                .ok();
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new(add_subtask_label.clone())
-                        .icon(Icon::new(IconName::Plus))
-                        .on_click(move |_, window, cx| {
-                            let pid = sub.clone();
-                            weak.update(cx, |this, cx| {
-                                Self::open_add_subtask(this, pid, window, cx);
-                            })
-                            .ok();
-                        }),
-                )
-                .separator()
-                .item(
-                    PopupMenuItem::new(delete_label.clone())
-                        .icon(Icon::new(IconName::Delete))
-                        .on_click(move |_, window, cx| {
-                            let id = del.clone();
-                            Self::open_delete_confirm(id, false, window, cx);
-                        }),
-                )
-            })
+            .dropdown_menu(Self::task_menu_builder(
+                weak,
+                task.id.clone(),
+                task.due_date,
+            ))
             .into_any_element()
     }
 
@@ -128,11 +191,6 @@ impl TaskView {
         parent_id: &str,
         sub: &Task,
     ) -> AnyElement {
-        let sid_due = sub.id.clone();
-        let sid_del = sub.id.clone();
-        let sub_due = sub.due_date;
-        let add_due_label = i18n_content(cx, "add_due_date");
-        let delete_label = i18n_content(cx, "delete");
         let menu_id = format!("subtask-menu-{}-{}", parent_id, sub.id);
         let sid_selected = sub.id.clone();
         let weak = cx.entity().downgrade();
@@ -148,40 +206,11 @@ impl TaskView {
                     cx.notify();
                 }
             }))
-            .dropdown_menu(move |menu: PopupMenu, _, _| {
-                let due = sid_due.clone();
-                let del = sid_del.clone();
-                let weak_due = weak.clone();
-                menu.item(
-                    PopupMenuItem::new(add_due_label.clone())
-                        .icon(Icon::new(IconName::Calendar))
-                        .on_click(move |_, window, cx| {
-                            let id = due.clone();
-                            weak_due
-                                .update(cx, move |this, cx| {
-                                    this.due_picker_for = Some(id);
-                                    this.due_picker_calendar_state.update(cx, |state, cx| {
-                                        let d = match sub_due {
-                                            Some(d) => Date::Single(Some(d)),
-                                            None => Date::Single(None),
-                                        };
-                                        state.set_date(d, window, cx);
-                                    });
-                                    cx.notify();
-                                })
-                                .ok();
-                        }),
-                )
-                .separator()
-                .item(
-                    PopupMenuItem::new(delete_label.clone())
-                        .icon(Icon::new(IconName::Delete))
-                        .on_click(move |_, window, cx| {
-                            let id = del.clone();
-                            Self::open_delete_confirm(id, true, window, cx);
-                        }),
-                )
-            })
+            .dropdown_menu(Self::subtask_menu_builder(
+                weak,
+                sub.id.clone(),
+                sub.due_date,
+            ))
             .into_any_element()
     }
 }

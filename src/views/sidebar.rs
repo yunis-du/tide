@@ -1,5 +1,5 @@
 use gpui::{
-    AnyElement, App, Context, ElementId, Entity, FontWeight, IntoElement, MouseDownEvent, Render,
+    AnyElement, Context, ElementId, Entity, FontWeight, IntoElement, MouseDownEvent, Render,
     Subscription, Window, div, prelude::*, px, rgba,
 };
 use gpui_component::{
@@ -189,90 +189,94 @@ impl SidebarView {
             .child(div().text_sm().text_color(text_color).child(label))
     }
 
-    fn render_options_menu(
-        cx: &App,
-        id: &str,
-        group_name: &str,
+    fn group_menu_builder(
+        id: String,
+        group_name: String,
         inp: Entity<InputState>,
-    ) -> AnyElement {
-        let rename_label = i18n_sidebar(cx, "rename");
-        let pin_label = i18n_sidebar(cx, "pin_to_desktop");
-        let delete_label = i18n_sidebar(cx, "delete_group");
-        let id = id.to_string();
-        let group_name = group_name.to_string();
+    ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+        move |menu, _window, cx| {
+            let rename_label = i18n_sidebar(cx, "rename");
+            let pin_label = i18n_sidebar(cx, "pin_to_desktop");
+            let delete_label = i18n_sidebar(cx, "delete_group");
 
+            menu.item(PopupMenuItem::new(rename_label).on_click({
+                let value = inp.clone();
+                let group_name = group_name.clone();
+                let id = id.clone();
+                move |_, window, cx| {
+                    let id_for_state = id.clone();
+                    value.update(cx, |state, cx| {
+                        state.set_value(&group_name, window, cx);
+                        state.focus(window, cx);
+                    });
+
+                    update_status(cx, move |status, _| {
+                        status.set_edit_group_id(Some(id_for_state));
+                    });
+                }
+            }))
+            .item(
+                PopupMenuItem::new(pin_label)
+                    .icon(Icon::new(IconName::ExternalLink))
+                    .on_click({
+                        let id = id.clone();
+                        move |_, _, cx| {
+                            open_pinned_group_window(cx, id.clone());
+                        }
+                    }),
+            )
+            .separator()
+            .item(PopupMenuItem::new(delete_label).on_click({
+                let id = id.clone();
+                move |_, window, cx| {
+                    let id = id.clone();
+                    window.open_dialog(cx, move |dialog, window, cx| {
+                        let id_for_del = id.clone();
+                        let dialog_width = px(360.);
+                        let dialog_height = px(160.);
+                        let margin_top =
+                            ((window.viewport_size().height - dialog_height) / 2.).max(px(0.));
+                        dialog
+                            .title(i18n_sidebar(cx, "delete_group_title"))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(i18n_sidebar(cx, "delete_group_desc")),
+                            )
+                            .w(dialog_width)
+                            .margin_top(margin_top)
+                            .confirm()
+                            .button_props(
+                                DialogButtonProps::default()
+                                    .ok_text(i18n_sidebar(cx, "confirm_delete"))
+                                    .cancel_text(i18n_sidebar(cx, "cancel"))
+                                    .ok_variant(ButtonVariant::Danger),
+                            )
+                            .on_ok(move |_, _, cx| {
+                                let id = id_for_del.clone();
+                                update_data_and_save(cx, "delete_group", move |data, _| {
+                                    data.remove_task_group(&id);
+                                });
+                                true
+                            })
+                    });
+                }
+            }))
+        }
+    }
+
+    fn render_options_menu(id: &str, group_name: &str, inp: Entity<InputState>) -> AnyElement {
         Button::new(ElementId::Name(format!("group-menu-{}", id).into()))
             .icon(IconName::Ellipsis)
             .ghost()
             .small()
             .cursor_pointer()
-            .dropdown_menu(move |menu: PopupMenu, _, _| {
-                menu.item(PopupMenuItem::new(rename_label.clone()).on_click({
-                    let value = inp.clone();
-                    let group_name = group_name.clone();
-                    let id = id.clone();
-                    move |_, window, cx| {
-                        let id_for_state = id.clone();
-                        value.update(cx, |state, cx| {
-                            state.set_value(&group_name, window, cx);
-                            state.focus(window, cx);
-                        });
-
-                        // set editing group id
-                        update_status(cx, move |status, _| {
-                            status.set_edit_group_id(Some(id_for_state));
-                        });
-                    }
-                }))
-                .item(
-                    PopupMenuItem::new(pin_label.clone())
-                        .icon(Icon::new(IconName::ExternalLink))
-                        .on_click({
-                            let id = id.clone();
-                            move |_, _, cx| {
-                                open_pinned_group_window(cx, id.clone());
-                            }
-                        }),
-                )
-                .separator()
-                .item(PopupMenuItem::new(delete_label.clone()).on_click({
-                    let id = id.clone();
-                    move |_, window, cx| {
-                        let id = id.clone();
-                        window.open_dialog(cx, move |dialog, window, cx| {
-                            let id_for_del = id.clone();
-                            let dialog_width = px(360.);
-                            let dialog_height = px(160.);
-                            let margin_top =
-                                ((window.viewport_size().height - dialog_height) / 2.).max(px(0.));
-                            dialog
-                                .title(i18n_sidebar(cx, "delete_group_title"))
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(i18n_sidebar(cx, "delete_group_desc")),
-                                )
-                                .w(dialog_width)
-                                .margin_top(margin_top)
-                                .confirm()
-                                .button_props(
-                                    DialogButtonProps::default()
-                                        .ok_text(i18n_sidebar(cx, "confirm_delete"))
-                                        .cancel_text(i18n_sidebar(cx, "cancel"))
-                                        .ok_variant(ButtonVariant::Danger),
-                                )
-                                .on_ok(move |_, _, cx| {
-                                    let id = id_for_del.clone();
-                                    update_data_and_save(cx, "delete_group", move |data, _| {
-                                        data.remove_task_group(&id);
-                                    });
-                                    true
-                                })
-                        });
-                    }
-                }))
-            })
+            .dropdown_menu(Self::group_menu_builder(
+                id.to_string(),
+                group_name.to_string(),
+                inp,
+            ))
             .into_any_element()
     }
 
@@ -318,8 +322,9 @@ impl SidebarView {
             };
 
             let editing_id_for_click = editing_group_id.clone();
-            let pin_label = i18n_sidebar(cx, "pin_to_desktop");
-            let group_id_for_pin = group.id.clone();
+            let group_id_for_menu = group.id.clone();
+            let group_name_for_menu = group.name.clone();
+            let group_input_for_menu = group_input.clone();
 
             let group_row = h_flex()
                 .id(ElementId::Name(format!("group-{}", group.id).into()))
@@ -385,23 +390,17 @@ impl SidebarView {
                             .opacity(if is_hovered { 1.0 } else { 0.0 })
                             .when(!is_hovered, |d| d.cursor_default())
                             .child(Self::render_options_menu(
-                                cx,
                                 group.id.as_str(),
                                 group.name.as_str(),
                                 group_input.clone(),
                             )),
                     )
                 })
-                .context_menu(move |menu, _window, _cx| {
-                    let id = group_id_for_pin.clone();
-                    menu.item(
-                        PopupMenuItem::new(pin_label.clone())
-                            .icon(Icon::new(IconName::ExternalLink))
-                            .on_click(move |_, _, cx| {
-                                open_pinned_group_window(cx, id.clone());
-                            }),
-                    )
-                });
+                .context_menu(Self::group_menu_builder(
+                    group_id_for_menu,
+                    group_name_for_menu,
+                    group_input_for_menu,
+                ));
 
             group_els.push(v_flex().w_full().child(group_row).into_any_element());
         }

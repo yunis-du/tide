@@ -4,7 +4,9 @@ use gpui_component::{
     ActiveTheme, InteractiveElementExt, Sizable,
     button::{Button, ButtonVariants},
     calendar::Date,
-    h_flex, v_flex,
+    h_flex,
+    menu::ContextMenuExt,
+    v_flex,
 };
 
 use crate::{
@@ -88,7 +90,10 @@ impl TaskView {
             let drop_target_id_sub = task.id.clone();
             let drag_start_id = task.id.clone();
             let weak = cx.entity().downgrade();
+            let weak_menu = weak.clone();
             let accent = cx.theme().info_active;
+            let menu_task_id = task.id.clone();
+            let menu_task_due = task.due_date;
 
             root.child(
                 h_flex()
@@ -297,7 +302,12 @@ impl TaskView {
                                         t.child(picker)
                                     })
                             }),
-                    ),
+                    )
+                    .context_menu(Self::task_menu_builder(
+                        weak_menu,
+                        menu_task_id,
+                        menu_task_due,
+                    )),
             )
         };
 
@@ -400,6 +410,9 @@ impl TaskView {
         let drop_parent_id = parent_id.to_string();
         let drag_start_id = sub.id.clone();
         let weak = cx.entity().downgrade();
+        let weak_menu = weak.clone();
+        let menu_sub_id = sub.id.clone();
+        let menu_sub_due = sub.due_date;
 
         h_flex()
             .id(ElementId::Name(
@@ -572,6 +585,11 @@ impl TaskView {
                             })
                     }),
             )
+            .context_menu(Self::subtask_menu_builder(
+                weak_menu,
+                menu_sub_id,
+                menu_sub_due,
+            ))
             .into_any_element()
     }
 }

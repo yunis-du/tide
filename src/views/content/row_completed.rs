@@ -125,10 +125,10 @@ impl TaskView {
                                 .small()
                                 .cursor_pointer()
                                 .tooltip(i18n_content(cx, "delete"))
-                                .on_click(move |_, window, cx| {
+                                .on_click(cx.listener(move |this, _, window, cx| {
                                     let id = id_for_delete.clone();
-                                    Self::open_delete_confirm(id, is_subtask, window, cx);
-                                }),
+                                    this.open_delete_confirm(id, is_subtask, window, cx);
+                                })),
                         ),
                 )
             })

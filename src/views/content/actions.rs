@@ -1,4 +1,4 @@
-use gpui::{App, Context, Window, div, prelude::*, px};
+use gpui::{Context, Window, div, prelude::*, px};
 use gpui_component::{ActiveTheme, WindowExt, button::ButtonVariant, dialog::DialogButtonProps};
 
 use crate::{
@@ -275,22 +275,24 @@ impl TaskView {
 
     pub(super) fn delete_selected_item(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(selected_sub_id) = self.selected_subtask_id.clone() {
-            Self::open_delete_confirm(selected_sub_id, true, window, cx);
+            self.open_delete_confirm(selected_sub_id, true, window, cx);
             return;
         }
 
         let Some(selected_id) = self.selected_task_id.clone() else {
             return;
         };
-        Self::open_delete_confirm(selected_id, false, window, cx);
+        self.open_delete_confirm(selected_id, false, window, cx);
     }
 
     pub(super) fn open_delete_confirm(
+        &mut self,
         id: String,
         is_subtask: bool,
         window: &mut Window,
-        cx: &mut App,
+        cx: &mut Context<Self>,
     ) {
+        let weak = cx.entity().downgrade();
         let title_key = if is_subtask {
             "delete_subtask_title"
         } else {
@@ -309,6 +311,7 @@ impl TaskView {
 
         window.open_dialog(cx, move |dialog, window, cx| {
             let id_for_del = id.clone();
+            let weak_for_ok = weak.clone();
             let dialog_width = px(360.);
             let dialog_height = px(160.);
             let margin_top = ((window.viewport_size().height - dialog_height) / 2.).max(px(0.));
@@ -331,6 +334,7 @@ impl TaskView {
                 )
                 .on_ok(move |_, _, cx| {
                     let id = id_for_del.clone();
+                    let id_for_state = id.clone();
                     if is_subtask {
                         update_data_and_save(cx, action_label, move |data, _| {
                             data.remove_subtask(&id);
@@ -340,6 +344,30 @@ impl TaskView {
                             data.remove_task(&id);
                         });
                     }
+                    weak_for_ok
+                        .update(cx, move |this, cx| {
+                            if this.selected_task_id.as_deref() == Some(id_for_state.as_str()) {
+                                this.selected_task_id = None;
+                            }
+                            if this.hovered_task_id.as_deref() == Some(id_for_state.as_str()) {
+                                this.hovered_task_id = None;
+                            }
+                            if this.selected_subtask_id.as_deref() == Some(id_for_state.as_str())
+                                || !is_subtask
+                            {
+                                this.selected_subtask_id = None;
+                            }
+                            if this.hovered_subtask_id.as_deref() == Some(id_for_state.as_str())
+                                || !is_subtask
+                            {
+                                this.hovered_subtask_id = None;
+                            }
+                            if this.due_picker_for.as_deref() == Some(id_for_state.as_str()) {
+                                this.due_picker_for = None;
+                            }
+                            cx.notify();
+                        })
+                        .ok();
                     true
                 })
         });

@@ -157,6 +157,7 @@ impl TaskView {
                     }))
                     .on_click(cx.listener(move |this, _, _window, cx| {
                         this.selected_task_id = Some(tid_selected.clone());
+                        this.selected_subtask_id = None;
                         cx.notify();
                     }))
                     .on_mouse_down_out(cx.listener(move |this, _, _window, cx| {
@@ -472,6 +473,7 @@ impl TaskView {
             }))
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.selected_subtask_id = Some(sid_selected.clone());
+                this.selected_task_id = None;
                 cx.notify();
             }))
             .on_mouse_down_out(cx.listener(move |this, _, _window, cx| {

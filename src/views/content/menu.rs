@@ -106,10 +106,14 @@ impl TaskView {
                 PopupMenuItem::new(delete_label)
                     .icon(Icon::new(IconName::Delete))
                     .on_click({
+                        let weak = weak.clone();
                         let task_id = task_id.clone();
                         move |_, window, cx| {
                             let id = task_id.clone();
-                            Self::open_delete_confirm(id, false, window, cx);
+                            weak.update(cx, |this, cx| {
+                                this.open_delete_confirm(id, false, window, cx);
+                            })
+                            .ok();
                         }
                     }),
             )
@@ -153,10 +157,14 @@ impl TaskView {
                 PopupMenuItem::new(delete_label)
                     .icon(Icon::new(IconName::Delete))
                     .on_click({
+                        let weak = weak.clone();
                         let sub_id = sub_id.clone();
                         move |_, window, cx| {
                             let id = sub_id.clone();
-                            Self::open_delete_confirm(id, true, window, cx);
+                            weak.update(cx, |this, cx| {
+                                this.open_delete_confirm(id, true, window, cx);
+                            })
+                            .ok();
                         }
                     }),
             )
@@ -175,6 +183,7 @@ impl TaskView {
             .on_click(cx.listener(move |this, _, _, cx| {
                 if this.selected_task_id.as_deref() != Some(tid_selected.as_str()) {
                     this.selected_task_id = Some(tid_selected.clone());
+                    this.selected_subtask_id = None;
                     cx.notify();
                 }
             }))
@@ -203,6 +212,7 @@ impl TaskView {
             .on_click(cx.listener(move |this, _, _, cx| {
                 if this.selected_subtask_id.as_deref() != Some(sid_selected.as_str()) {
                     this.selected_subtask_id = Some(sid_selected.clone());
+                    this.selected_task_id = None;
                     cx.notify();
                 }
             }))

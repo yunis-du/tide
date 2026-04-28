@@ -54,8 +54,8 @@ impl ContentEmptyState {
 
     fn image_path(self) -> &'static str {
         match self {
-            Self::NoTasks => "images/empty_task.png",
-            Self::AllCompleted => "images/completed_task.png",
+            Self::NoTasks => "illustration/empty_task.svg",
+            Self::AllCompleted => "illustration/completed_task.svg",
         }
     }
 

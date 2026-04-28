@@ -1,20 +1,20 @@
 use chrono::NaiveDate;
 use gpui::{
-    AnyElement, Context, FontWeight, IntoElement, KeyDownEvent, MouseButton, Render, Styled,
-    Window, div, img, prelude::*, px, relative, rgba,
+    div, img, prelude::*, px, relative, rgba, AnyElement, Context, FontWeight, IntoElement,
+    KeyDownEvent, MouseButton, Render, Styled, Window,
 };
 use gpui_component::{
-    ActiveTheme, Icon, IconName, h_flex,
+    h_flex,
     input::Escape,
     scroll::{ScrollableElement, Scrollbar},
-    v_flex,
+    v_flex, ActiveTheme, Icon, IconName,
 };
 use rust_i18n::t;
 
 use crate::{
     components::TaskForm,
     helpers::{i18n_content, interactive_accent, locale},
-    state::{Task, TideDataStore, TideStore, update_data_and_save},
+    state::{update_data_and_save, Task, TideDataStore, TideStore},
 };
 
 use super::{
@@ -70,6 +70,13 @@ impl ContentEmptyState {
         match self {
             Self::NoTasks => "empty_task_desc",
             Self::AllCompleted => "completed_task_desc",
+        }
+    }
+
+    fn image_width(self) -> f32 {
+        match self {
+            Self::NoTasks => 180.,
+            Self::AllCompleted => 180.,
         }
     }
 }
@@ -163,6 +170,8 @@ impl Render for TaskView {
             !completed_items.is_empty(),
             show_add_task_btn,
         );
+        let has_empty_state = empty_state.is_some();
+        let disable_pending_scroll = has_empty_state;
 
         let mut completed_els: Vec<AnyElement> = Vec::new();
         let completed_expanded = self.completed_expanded;
@@ -301,8 +310,10 @@ impl Render for TaskView {
                                     .flex()
                                     .size_full()
                                     .flex_col()
-                                    .overflow_y_scroll()
-                                    .track_scroll(&self.pending_scroll_handle)
+                                    .when(!disable_pending_scroll, |t| {
+                                        t.overflow_y_scroll()
+                                            .track_scroll(&self.pending_scroll_handle)
+                                    })
                                     .child(
                                         v_flex()
                                             .flex_1()
@@ -312,18 +323,20 @@ impl Render for TaskView {
                                                 t.child(Self::render_empty_state(cx, state))
                                             })
                                             .children(rest_els)
-                                            .child(end_drop_zone),
+                                            .when(!has_empty_state, |t| t.child(end_drop_zone)),
                                     ),
                             )
-                            .child(
-                                div()
-                                    .absolute()
-                                    .top_0()
-                                    .left_0()
-                                    .right_0()
-                                    .bottom_0()
-                                    .child(Scrollbar::vertical(&self.pending_scroll_handle)),
-                            ),
+                            .when(!disable_pending_scroll, |t| {
+                                t.child(
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .left_0()
+                                        .right_0()
+                                        .bottom_0()
+                                        .child(Scrollbar::vertical(&self.pending_scroll_handle)),
+                                )
+                            }),
                     ),
             )
             .child(
@@ -390,14 +403,18 @@ impl TaskView {
         div()
             .id(state.view_id())
             .flex_1()
-            .min_h(px(260.))
+            .min_h(px(220.))
             .w_full()
             .flex()
             .flex_col()
             .items_center()
             .justify_center()
-            .gap_3()
-            .child(img(state.image_path()).w(px(360.)).max_w_full())
+            .gap_2()
+            .child(
+                img(state.image_path())
+                    .w(px(state.image_width()))
+                    .max_w_full(),
+            )
             .child(
                 v_flex()
                     .items_center()

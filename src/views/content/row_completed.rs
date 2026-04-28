@@ -9,7 +9,7 @@ use rust_i18n::t;
 
 use crate::{
     assets::CustomIconName,
-    helpers::{i18n_content, locale, weekday_label},
+    helpers::{i18n_content, interactive_accent, locale, weekday_label},
     state::update_data_and_save,
 };
 
@@ -24,7 +24,7 @@ impl TaskView {
         completed_at: Option<NaiveDate>,
         is_subtask: bool,
     ) -> AnyElement {
-        let accent = cx.theme().info_active;
+        let accent = interactive_accent(cx.theme());
         let list_even = cx.theme().list_even;
         let muted_fg = cx.theme().muted_foreground;
         let locale = locale(cx);

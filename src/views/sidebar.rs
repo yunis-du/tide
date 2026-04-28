@@ -13,7 +13,7 @@ use gpui_component::{
 };
 
 use crate::{
-    helpers::i18n_sidebar,
+    helpers::{active_item_bg, i18n_sidebar, interactive_accent},
     state::{
         SidebarSelection, TaskGroup, TideDataStore, TideStore, tide::update_status,
         update_data_and_save,
@@ -157,14 +157,14 @@ impl SidebarView {
         is_active: bool,
         sel: SidebarSelection,
     ) -> impl IntoElement {
-        let accent = cx.theme().info_active;
+        let accent = interactive_accent(cx.theme());
         let muted_fg = cx.theme().muted_foreground;
         let fg = cx.theme().foreground;
 
         let icon_color = if is_active { accent } else { muted_fg };
         let text_color = if is_active { accent } else { fg };
         let bg = if is_active {
-            Some(accent.opacity(0.15))
+            Some(active_item_bg(cx.theme()))
         } else {
             None
         };
@@ -301,7 +301,7 @@ impl SidebarView {
             groups.push(new_group.clone().unwrap());
         }
 
-        let active_color = cx.theme().info_active;
+        let active_color = interactive_accent(cx.theme());
         let fg = cx.theme().foreground;
         let muted_fg = cx.theme().muted_foreground;
 
@@ -316,7 +316,7 @@ impl SidebarView {
             let fg_color = if is_active { active_color } else { fg };
             let icon_color = if is_active { active_color } else { muted_fg };
             let bg_color = if is_active {
-                Some(active_color.opacity(0.15))
+                Some(active_item_bg(cx.theme()))
             } else {
                 None
             };

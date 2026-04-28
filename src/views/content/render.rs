@@ -1,7 +1,7 @@
 use chrono::NaiveDate;
 use gpui::{
     AnyElement, Context, FontWeight, IntoElement, KeyDownEvent, MouseButton, Render, Styled,
-    Window, div, prelude::*, px, relative, rgba,
+    Window, div, img, prelude::*, px, relative, rgba,
 };
 use gpui_component::{
     ActiveTheme, Icon, IconName, h_flex,
@@ -13,7 +13,7 @@ use rust_i18n::t;
 
 use crate::{
     components::TaskForm,
-    helpers::{i18n_content, locale},
+    helpers::{i18n_content, interactive_accent, locale},
     state::{Task, TideDataStore, TideStore, update_data_and_save},
 };
 
@@ -21,6 +21,58 @@ use super::{
     drag::{DragSubTask, DragTask},
     view::TaskView,
 };
+
+#[derive(Clone, Copy)]
+enum ContentEmptyState {
+    NoTasks,
+    AllCompleted,
+}
+
+impl ContentEmptyState {
+    fn for_task_counts(
+        has_pending: bool,
+        has_completed: bool,
+        show_add_task_btn: bool,
+    ) -> Option<Self> {
+        if has_pending || !show_add_task_btn {
+            return None;
+        }
+
+        if has_completed {
+            Some(Self::AllCompleted)
+        } else {
+            Some(Self::NoTasks)
+        }
+    }
+
+    fn view_id(self) -> &'static str {
+        match self {
+            Self::NoTasks => "empty-task-state",
+            Self::AllCompleted => "completed-task-state",
+        }
+    }
+
+    fn image_path(self) -> &'static str {
+        match self {
+            Self::NoTasks => "images/empty_task.png",
+            Self::AllCompleted => "images/completed_task.png",
+        }
+    }
+
+    fn title_key(self) -> &'static str {
+        match self {
+            Self::NoTasks => "empty_task_title",
+            Self::AllCompleted => "completed_task_title",
+        }
+    }
+
+    fn desc_key(self) -> &'static str {
+        match self {
+            Self::NoTasks => "empty_task_desc",
+            Self::AllCompleted => "completed_task_desc",
+        }
+    }
+}
 
 impl Render for TaskView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -106,6 +158,11 @@ impl Render for TaskView {
                 }
             }
         }
+        let empty_state = ContentEmptyState::for_task_counts(
+            !pending.is_empty(),
+            !completed_items.is_empty(),
+            show_add_task_btn,
+        );
 
         let mut completed_els: Vec<AnyElement> = Vec::new();
         let completed_expanded = self.completed_expanded;
@@ -138,7 +195,7 @@ impl Render for TaskView {
             }));
 
         let add_task_btn = {
-            let accent = cx.theme().info_active;
+            let accent = interactive_accent(cx.theme());
             let add_task_label = i18n_content(cx, "add_task");
 
             h_flex()
@@ -251,6 +308,9 @@ impl Render for TaskView {
                                             .flex_1()
                                             .children(batch_els)
                                             .when(!show_add_task_btn, |t| t.child(task_form))
+                                            .when_some(empty_state, |t, state| {
+                                                t.child(Self::render_empty_state(cx, state))
+                                            })
                                             .children(rest_els)
                                             .child(end_drop_zone),
                                     ),
@@ -317,6 +377,44 @@ impl Render for TaskView {
                                 .children(completed_els),
                         )
                     }),
+            )
+            .into_any_element()
+    }
+}
+
+impl TaskView {
+    fn render_empty_state(cx: &mut Context<Self>, state: ContentEmptyState) -> AnyElement {
+        let fg = cx.theme().foreground;
+        let muted_fg = cx.theme().muted_foreground;
+
+        div()
+            .id(state.view_id())
+            .flex_1()
+            .min_h(px(260.))
+            .w_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap_3()
+            .child(img(state.image_path()).w(px(360.)).max_w_full())
+            .child(
+                v_flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight(500.))
+                            .text_color(fg)
+                            .child(i18n_content(cx, state.title_key())),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted_fg)
+                            .child(i18n_content(cx, state.desc_key())),
+                    ),
             )
             .into_any_element()
     }

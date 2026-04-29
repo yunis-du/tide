@@ -6,7 +6,7 @@ use crate::{
     state::{SidebarSelection, TideDataStore},
 };
 
-use super::content::view::TaskView;
+use super::{SettingsView, content::view::TaskView};
 
 mod actions;
 mod drag;
@@ -18,12 +18,17 @@ mod view;
 
 pub struct ContentView {
     task_view: Entity<TaskView>,
+    settings_view: Entity<SettingsView>,
 }
 
 impl ContentView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let task_view = cx.new(|cx| TaskView::new(window, cx));
-        Self { task_view }
+        let settings_view = cx.new(|cx| SettingsView::new(window, cx));
+        Self {
+            task_view,
+            settings_view,
+        }
     }
 }
 
@@ -32,9 +37,14 @@ impl Render for ContentView {
         let data = cx.global::<TideDataStore>().read(cx);
 
         let sel = data.sidebar_selection().clone();
+        if sel == SidebarSelection::Settings {
+            return self.settings_view.clone().into_any_element();
+        }
+
         let group_name = match &sel {
             SidebarSelection::AllTasks => i18n_content(cx, "all_tasks"),
             SidebarSelection::Starred => i18n_content(cx, "starred"),
+            SidebarSelection::Settings => unreachable!(),
             SidebarSelection::Group(id) => data
                 .task_groups()
                 .iter()
@@ -78,5 +88,6 @@ impl Render for ContentView {
                             .child(self.task_view.clone()),
                     ),
             )
+            .into_any_element()
     }
 }

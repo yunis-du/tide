@@ -9,6 +9,38 @@ use crate::helpers::get_or_create_config_path;
 const LIGHT_THEME_MODE: &str = "light";
 const DARK_THEME_MODE: &str = "dark";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloseBehavior {
+    HideToTray,
+    Quit,
+}
+
+impl Default for CloseBehavior {
+    fn default() -> Self {
+        Self::HideToTray
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DefaultView {
+    LastOpened,
+    AllTasks,
+    Starred,
+    FirstGroup,
+}
+
+impl Default for DefaultView {
+    fn default() -> Self {
+        Self::LastOpened
+    }
+}
+
+const fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone)]
 pub struct TideStatus {
     // group status
@@ -102,6 +134,18 @@ pub struct Tide {
     pub locale: Option<String>,
     bounds: Option<Bounds<Pixels>>,
     theme: Option<String>,
+    #[serde(default)]
+    launch_at_login: bool,
+    #[serde(default = "default_true")]
+    show_main_window_on_startup: bool,
+    #[serde(default)]
+    close_behavior: CloseBehavior,
+    #[serde(default)]
+    default_view: DefaultView,
+    #[serde(default)]
+    completed_expanded_by_default: bool,
+    #[serde(default)]
+    auto_check_updates: bool,
     #[serde(skip)]
     status: TideStatus,
 }
@@ -119,6 +163,30 @@ impl Tide {
         self.locale.as_deref().unwrap_or("en")
     }
 
+    pub fn launch_at_login(&self) -> bool {
+        self.launch_at_login
+    }
+
+    pub fn show_main_window_on_startup(&self) -> bool {
+        self.show_main_window_on_startup
+    }
+
+    pub fn close_behavior(&self) -> CloseBehavior {
+        self.close_behavior
+    }
+
+    pub fn default_view(&self) -> DefaultView {
+        self.default_view
+    }
+
+    pub fn completed_expanded_by_default(&self) -> bool {
+        self.completed_expanded_by_default
+    }
+
+    pub fn auto_check_updates(&self) -> bool {
+        self.auto_check_updates
+    }
+
     pub fn status(&self) -> &TideStatus {
         &self.status
     }
@@ -133,6 +201,30 @@ impl Tide {
 
     pub fn set_locale(&mut self, locale: String) {
         self.locale = Some(locale);
+    }
+
+    pub fn set_launch_at_login(&mut self, enabled: bool) {
+        self.launch_at_login = enabled;
+    }
+
+    pub fn set_show_main_window_on_startup(&mut self, enabled: bool) {
+        self.show_main_window_on_startup = enabled;
+    }
+
+    pub fn set_close_behavior(&mut self, behavior: CloseBehavior) {
+        self.close_behavior = behavior;
+    }
+
+    pub fn set_default_view(&mut self, view: DefaultView) {
+        self.default_view = view;
+    }
+
+    pub fn set_completed_expanded_by_default(&mut self, expanded: bool) {
+        self.completed_expanded_by_default = expanded;
+    }
+
+    pub fn set_auto_check_updates(&mut self, enabled: bool) {
+        self.auto_check_updates = enabled;
     }
 }
 

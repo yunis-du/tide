@@ -14,7 +14,7 @@ use std::{
 };
 
 use directories::ProjectDirs;
-use gpui::{App, Context, IntoElement, Render, Window, div, prelude::*, px};
+use gpui::{AnyWindowHandle, App, Context, IntoElement, Render, Window, div, prelude::*, px};
 use gpui_component::{
     ActiveTheme, WindowExt, dialog::DialogButtonProps, progress::Progress, v_flex,
 };
@@ -158,6 +158,25 @@ pub fn check_and_show(window: &mut Window, cx: &mut App) {
         let _ = handle.update(cx, |_any_view, window, cx| {
             show_status_dialog(window, cx, status);
         });
+    })
+    .detach();
+}
+
+pub fn check_and_show_available_only(handle: AnyWindowHandle, cx: &mut App) {
+    let url = manifest_url().to_string();
+    let current = CURRENT_VERSION.to_string();
+    let platform = platform_key();
+
+    cx.spawn(async move |cx| {
+        let status = cx
+            .background_spawn(async move { fetch_status(&url, &current, &platform) })
+            .await;
+
+        if matches!(status, UpdateStatus::Available { .. }) {
+            let _ = handle.update(cx, |_any_view, window, cx| {
+                show_status_dialog(window, cx, status);
+            });
+        }
     })
     .detach();
 }

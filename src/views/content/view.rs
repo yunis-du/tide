@@ -101,6 +101,11 @@ impl TaskView {
         })
         .detach();
 
+        let completed_expanded = cx
+            .global::<TideStore>()
+            .read(cx)
+            .completed_expanded_by_default();
+
         Self {
             title_input,
             details_input,
@@ -112,7 +117,7 @@ impl TaskView {
             pending_scroll_handle: ScrollHandle::new(),
             batch_count: 0,
             subtask_batch_count: 0,
-            completed_expanded: false,
+            completed_expanded,
             hovered_task_id: None,
             selected_task_id: None,
             dragging_task_id: None,

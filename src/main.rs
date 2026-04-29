@@ -12,7 +12,7 @@ use gpui_component::{ActiveTheme, Root, Theme, ThemeMode, h_flex, v_flex};
 use crate::{
     helpers::{HotKeyAction, LocaleAction, ThemeAction, default_ui_locale, new_hot_keys},
     state::{
-        TideDataStore, TideStore,
+        CloseBehavior, DefaultView, SidebarSelection, TideDataStore, TideStore,
         data::load_data,
         tide::{load_config, save_config},
         update_and_save,
@@ -27,6 +27,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
 mod assets;
+mod autostart;
 mod components;
 mod helpers;
 #[cfg(target_os = "windows")]
@@ -212,6 +213,11 @@ pub(crate) fn open_main_window(cx: &mut App) -> anyhow::Result<WindowHandle<Root
         |window, cx| {
             // Keep About and other windows independent when main window closes.
             window.on_window_should_close(cx, move |_window, _cx| {
+                if _cx.global::<TideStore>().read(_cx).close_behavior() == CloseBehavior::Quit {
+                    _cx.quit();
+                    return false;
+                }
+
                 #[cfg(target_os = "windows")]
                 {
                     hide_on_windows(_window);
@@ -263,6 +269,18 @@ fn main() {
         task_data
             .task_groups
             .push(crate::state::data::TaskGroup::default_group());
+    }
+    match app_config.default_view() {
+        DefaultView::LastOpened => {}
+        DefaultView::AllTasks => task_data.sidebar_selection = SidebarSelection::AllTasks,
+        DefaultView::Starred => task_data.sidebar_selection = SidebarSelection::Starred,
+        DefaultView::FirstGroup => {
+            task_data.sidebar_selection = task_data
+                .task_groups
+                .last()
+                .map(|group| SidebarSelection::Group(group.id.clone()))
+                .unwrap_or(SidebarSelection::AllTasks);
+        }
     }
 
     app.run(move |cx| {
@@ -345,6 +363,22 @@ fn main() {
             // running (macOS requirement); doing it from this spawned task
             // satisfies that ordering.
             cx.update(|cx| tray::init(cx, handle))?;
+
+            let show_main_window = cx.update(|cx| {
+                cx.global::<TideStore>()
+                    .read(cx)
+                    .show_main_window_on_startup()
+            })?;
+            if !show_main_window {
+                cx.update(|cx| hide_to_tray(cx))?;
+            }
+
+            let auto_check_updates =
+                cx.update(|cx| cx.global::<TideStore>().read(cx).auto_check_updates())?;
+            if auto_check_updates {
+                let any_handle = handle.into();
+                cx.update(|cx| updater::check_and_show_available_only(any_handle, cx))?;
+            }
 
             #[cfg(target_os = "windows")]
             if let Some(guard) = instance_guard {

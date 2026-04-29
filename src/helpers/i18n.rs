@@ -37,6 +37,11 @@ pub fn i18n_content(cx: &App, key: &str) -> String {
     t!(format!("content.{key}"), locale = l).into()
 }
 
+pub fn i18n_settings(cx: &App, key: &str) -> String {
+    let l = locale(cx);
+    t!(format!("settings.{key}"), locale = l).into()
+}
+
 pub fn i18n_tray(cx: &App, key: &str) -> String {
     let l = locale(cx);
     t!(format!("tray.{key}"), locale = l).into()

@@ -80,6 +80,7 @@ pub enum SidebarSelection {
     #[default]
     AllTasks,
     Starred,
+    Settings,
     Group(String),
 }
 
@@ -143,6 +144,7 @@ impl TideData {
                 .filter(|t| t.parent_id.is_none())
                 .collect(),
             SidebarSelection::Starred => self.tasks.iter().filter(|t| t.is_starred).collect(),
+            SidebarSelection::Settings => Vec::new(),
             SidebarSelection::Group(id) => self
                 .tasks
                 .iter()

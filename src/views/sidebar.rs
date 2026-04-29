@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, Context, ElementId, Entity, FontWeight, IntoElement, MouseDownEvent, Render,
-    Subscription, Window, div, prelude::*, px, rgba,
+    AnyElement, Context, Corner, ElementId, Entity, FontWeight, IntoElement, MouseDownEvent,
+    Render, Subscription, Window, div, prelude::*, px, rgba,
 };
 use gpui_component::{
     ActiveTheme, Icon, IconName, Sizable, WindowExt,
@@ -9,6 +9,7 @@ use gpui_component::{
     h_flex,
     input::{Escape, Input, InputEvent, InputState},
     menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
+    scroll::ScrollableElement,
     v_flex,
 };
 
@@ -189,6 +190,46 @@ impl SidebarView {
             .child(div().text_sm().text_color(text_color).child(label))
     }
 
+    fn render_settings_row(cx: &mut Context<Self>, is_active: bool) -> impl IntoElement {
+        let accent = interactive_accent(cx.theme());
+        let fg = cx.theme().foreground;
+        let icon_color = if is_active { accent } else { fg };
+        let text_color = if is_active { accent } else { fg };
+        let bg = if is_active {
+            Some(active_item_bg(cx.theme()))
+        } else {
+            None
+        };
+
+        h_flex()
+            .id("nav-settings")
+            .w_full()
+            .rounded_lg()
+            .px_2()
+            .py_2()
+            .gap_3()
+            .items_center()
+            .cursor_pointer()
+            .when_some(bg, |t, c| t.bg(c))
+            .hover(|s| s.bg(rgba(0x00000010)))
+            .on_click(move |_, _, cx| {
+                update_data_and_save(cx, "set_selection", move |data, _| {
+                    data.set_sidebar_selection(SidebarSelection::Settings);
+                });
+            })
+            .child(
+                Icon::new(IconName::Settings)
+                    .size_5()
+                    .text_color(icon_color),
+            )
+            .child(
+                div()
+                    .text_base()
+                    .text_color(text_color)
+                    .child(i18n_sidebar(cx, "settings")),
+            )
+    }
+
     fn group_menu_builder(
         id: String,
         group_name: String,
@@ -277,6 +318,73 @@ impl SidebarView {
                 group_name.to_string(),
                 inp,
             ))
+            .anchor(Corner::TopRight)
+            .into_any_element()
+    }
+
+    fn render_create_group_btn(
+        cx: &mut Context<Self>,
+        group_input: Entity<InputState>,
+    ) -> AnyElement {
+        let muted_fg = cx.theme().muted_foreground;
+
+        h_flex()
+            .id("new-group-btn")
+            .w_full()
+            .rounded_lg()
+            .px_2()
+            .py_1p5()
+            .gap_2()
+            .cursor_pointer()
+            .hover(|s| s.bg(rgba(0x00000010)))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                let new_group = TaskGroup::new("");
+                let new_group_id = new_group.id.clone();
+                this.new_group = Some(new_group);
+
+                group_input.update(cx, |inp, cx| {
+                    inp.set_value("", window, cx);
+                    inp.focus(window, cx);
+                });
+
+                update_status(cx, move |status, _| {
+                    status.set_edit_group_id(Some(new_group_id));
+                    status.set_create_group(true);
+                });
+            }))
+            .child(Icon::new(IconName::Plus).size_4().text_color(muted_fg))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child(i18n_sidebar(cx, "new_group")),
+            )
+            .into_any_element()
+    }
+
+    fn render_group_header(
+        cx: &mut Context<Self>,
+        group_input: Entity<InputState>,
+        is_create_group: bool,
+    ) -> AnyElement {
+        let muted_fg = cx.theme().muted_foreground;
+
+        let groups_label = h_flex().w_full().px_2().py_1().justify_between().child(
+            div()
+                .text_xs()
+                .font_weight(FontWeight(500.))
+                .text_color(muted_fg)
+                .child(i18n_sidebar(cx, "task_groups")),
+        );
+
+        v_flex()
+            .mt_4()
+            .px_2()
+            .gap_1()
+            .child(groups_label)
+            .when(!is_create_group, |t| {
+                t.child(Self::render_create_group_btn(cx, group_input))
+            })
             .into_any_element()
     }
 
@@ -300,6 +408,7 @@ impl SidebarView {
         if new_group.is_some() && is_create_group {
             groups.push(new_group.clone().unwrap());
         }
+        groups.reverse();
 
         let active_color = interactive_accent(cx.theme());
         let fg = cx.theme().foreground;
@@ -405,59 +514,10 @@ impl SidebarView {
             group_els.push(v_flex().w_full().child(group_row).into_any_element());
         }
 
-        let groups_label = {
-            let label = i18n_sidebar(cx, "task_groups");
-            h_flex().w_full().px_2().py_1().justify_between().child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight(500.))
-                    .text_color(muted_fg)
-                    .child(label),
-            )
-        };
-
-        let create_group_btn = {
-            h_flex()
-                .id("new-group-btn")
-                .w_full()
-                .rounded_lg()
-                .px_2()
-                .py_1p5()
-                .gap_2()
-                .cursor_pointer()
-                .hover(|s| s.bg(rgba(0x00000010)))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    let new_group = TaskGroup::new("");
-                    let new_group_id = new_group.id.clone();
-                    this.new_group = Some(new_group);
-
-                    this.group_input.update(cx, |inp, cx| {
-                        inp.set_value("", window, cx);
-                        inp.focus(window, cx);
-                    });
-
-                    update_status(cx, move |status, _| {
-                        status.set_edit_group_id(Some(new_group_id));
-                        status.set_create_group(true);
-                    });
-                }))
-                .child(Icon::new(IconName::Plus).size_4().text_color(muted_fg))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(muted_fg)
-                        .child(i18n_sidebar(cx, "new_group")),
-                )
-                .into_any_element()
-        };
-
         v_flex()
-            .mt_4()
             .px_2()
             .gap_1()
-            .child(groups_label)
             .children(group_els)
-            .when(!is_create_group, |t| t.child(create_group_btn))
             .into_any_element()
     }
 }
@@ -474,12 +534,14 @@ impl Render for SidebarView {
 
         let all_active = selection == SidebarSelection::AllTasks;
         let star_active = selection == SidebarSelection::Starred;
+        let settings_active = selection == SidebarSelection::Settings;
 
         let all_label = i18n_sidebar(cx, "all_tasks");
         let star_label = i18n_sidebar(cx, "starred");
 
         let hovered_group = self.hovered_group_id.clone();
         let group_input = self.group_input.clone();
+        let is_create_group = cx.global::<TideStore>().read(cx).status().create_group();
 
         let nav_rows = {
             v_flex()
@@ -518,11 +580,31 @@ impl Render for SidebarView {
                 });
             }))
             .child(nav_rows)
-            .child(Self::render_group_list(
+            .child(Self::render_group_header(
                 cx,
-                hovered_group,
-                group_input,
-                self.new_group.clone(),
+                group_input.clone(),
+                is_create_group,
             ))
+            .child(
+                div().flex_1().min_h_0().overflow_hidden().child(
+                    v_flex()
+                        .id("sidebar-groups-scroll")
+                        .size_full()
+                        .min_h_0()
+                        .overflow_y_scrollbar()
+                        .child(Self::render_group_list(
+                            cx,
+                            hovered_group,
+                            group_input,
+                            self.new_group.clone(),
+                        )),
+                ),
+            )
+            .child(
+                div()
+                    .px_2()
+                    .pt_2()
+                    .child(Self::render_settings_row(cx, settings_active)),
+            )
     }
 }

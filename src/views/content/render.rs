@@ -1,20 +1,20 @@
 use chrono::NaiveDate;
 use gpui::{
-    div, img, prelude::*, px, relative, rgba, AnyElement, Context, FontWeight, IntoElement,
-    KeyDownEvent, MouseButton, Render, Styled, Window,
+    AnyElement, Context, FontWeight, IntoElement, KeyDownEvent, MouseButton, Render, Styled,
+    Window, div, img, prelude::*, px, relative, rgba,
 };
 use gpui_component::{
-    h_flex,
+    ActiveTheme, Icon, IconName, h_flex,
     input::Escape,
     scroll::{ScrollableElement, Scrollbar},
-    v_flex, ActiveTheme, Icon, IconName,
+    v_flex,
 };
 use rust_i18n::t;
 
 use crate::{
     components::TaskForm,
     helpers::{i18n_content, interactive_accent, locale},
-    state::{update_data_and_save, Task, TideDataStore, TideStore},
+    state::{Task, TideDataStore, TideStore, update_data_and_save},
 };
 
 use super::{

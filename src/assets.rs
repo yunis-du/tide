@@ -47,6 +47,7 @@ pub enum CustomIconName {
     StarOutline,
     Check,
     Trash,
+    Clock,
 }
 
 impl CustomIconName {
@@ -57,6 +58,7 @@ impl CustomIconName {
             CustomIconName::StarOutline => "icons/star_outline.svg",
             CustomIconName::Check => "icons/check.svg",
             CustomIconName::Trash => "icons/trash.svg",
+            CustomIconName::Clock => "icons/clock.svg",
         }
     }
 }

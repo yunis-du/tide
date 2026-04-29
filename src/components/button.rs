@@ -7,7 +7,10 @@ use gpui::{
 };
 use gpui_component::{ActiveTheme, Icon, Sizable, Size, tooltip::Tooltip};
 
-use crate::{assets::CustomIconName, helpers::i18n_content};
+use crate::{
+    assets::CustomIconName,
+    helpers::{i18n_content, interactive_accent},
+};
 
 #[derive(IntoElement)]
 pub struct RadioButton {
@@ -57,7 +60,7 @@ impl RenderOnce for RadioButton {
             .flex_none()
             .size(px(20.))
             .rounded_full()
-            .border_1()
+            .border_2()
             .border_color(cx.theme().border)
             .map(|this| match self.size {
                 Size::XSmall => this.size_3(),
@@ -79,7 +82,7 @@ impl RenderOnce for RadioButton {
                     .items_center()
                     .justify_center()
                     .invisible()
-                    .text_color(cx.theme().info_active)
+                    .text_color(interactive_accent(cx.theme()))
                     .group_hover(group_name, |s| s.visible())
                     .child(
                         Icon::new(CustomIconName::Check).map(|this| match self.size {

@@ -3,9 +3,8 @@
 #[cfg(not(target_os = "linux"))]
 use gpui::TitlebarOptions;
 use gpui::{
-    App, AppContext, Application, Bounds, Context, Entity, InteractiveElement, IntoElement,
-    ParentElement, Render, Styled, Window, WindowAppearance, WindowBounds, WindowHandle,
-    WindowOptions, px, size,
+    App, AppContext, Bounds, Context, Entity, InteractiveElement, IntoElement, ParentElement,
+    Render, Styled, Window, WindowAppearance, WindowBounds, WindowHandle, WindowOptions, px, size,
 };
 use gpui_component::{ActiveTheme, Root, Theme, ThemeMode, h_flex, v_flex};
 
@@ -249,7 +248,7 @@ fn main() {
         }
     };
 
-    let app = Application::new().with_assets(assets::Assets);
+    let app = gpui_platform::application().with_assets(assets::Assets);
 
     // Load persisted config; fall back to defaults on error.
     let mut app_config = load_config().unwrap_or_default();
@@ -357,32 +356,32 @@ fn main() {
         });
 
         cx.spawn(async move |cx| {
-            let handle = cx.update(|cx| open_main_window(cx))??;
+            let handle = cx.update(|cx| open_main_window(cx))?;
 
             // Tray must be created on the main thread after the event loop is
             // running (macOS requirement); doing it from this spawned task
             // satisfies that ordering.
-            cx.update(|cx| tray::init(cx, handle))?;
+            cx.update(|cx| tray::init(cx, handle));
 
             let show_main_window = cx.update(|cx| {
                 cx.global::<TideStore>()
                     .read(cx)
                     .show_main_window_on_startup()
-            })?;
+            });
             if !show_main_window {
-                cx.update(|cx| hide_to_tray(cx))?;
+                cx.update(|cx| hide_to_tray(cx));
             }
 
             let auto_check_updates =
-                cx.update(|cx| cx.global::<TideStore>().read(cx).auto_check_updates())?;
+                cx.update(|cx| cx.global::<TideStore>().read(cx).auto_check_updates());
             if auto_check_updates {
                 let any_handle = handle.into();
-                cx.update(|cx| updater::check_and_show_available_only(any_handle, cx))?;
+                cx.update(|cx| updater::check_and_show_available_only(any_handle, cx));
             }
 
             #[cfg(target_os = "windows")]
             if let Some(guard) = instance_guard {
-                cx.update(|cx| single_instance::spawn_watcher(cx, guard, handle))?;
+                cx.update(|cx| single_instance::spawn_watcher(cx, guard, handle));
             }
 
             Ok::<_, anyhow::Error>(())

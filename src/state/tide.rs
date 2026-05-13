@@ -260,7 +260,7 @@ impl TideStore {
         &self,
         cx: &mut C,
         f: impl FnOnce(&mut Tide, &mut Context<Tide>) -> R,
-    ) -> C::Result<R> {
+    ) -> R {
         self.entity.update(cx, f)
     }
 }
@@ -280,19 +280,17 @@ where
             tide.clone()
         });
 
-        if let Ok(tide) = current {
-            cx.background_executor()
-                .spawn(async move {
-                    if let Err(e) = save_config(&tide) {
-                        error!(error = %e, action = action_name, "Failed to save config");
-                    } else {
-                        info!(action = action_name, "Config saved successfully");
-                    }
-                })
-                .await;
-        }
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(e) = save_config(&current) {
+                    error!(error = %e, action = action_name, "Failed to save config");
+                } else {
+                    info!(action = action_name, "Config saved successfully");
+                }
+            })
+            .await;
 
-        cx.update(|cx| cx.refresh_windows()).ok();
+        cx.update(|cx| cx.refresh_windows());
     })
     .detach();
 }
@@ -309,7 +307,7 @@ where
             tide.clone()
         });
 
-        cx.update(|cx| cx.refresh_windows()).ok();
+        cx.update(|cx| cx.refresh_windows());
     })
     .detach();
 }

@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use chrono::{Local, NaiveDate};
 use gpui::{
-    App, Corner, ElementId, Entity, Hsla, InteractiveElement, IntoElement, MouseButton,
+    Anchor, App, ElementId, Entity, Hsla, InteractiveElement, IntoElement, MouseButton,
     MouseDownEvent, ParentElement, RenderOnce, StatefulInteractiveElement, Styled, Window, div,
     prelude::FluentBuilder, px, rgba,
 };
@@ -226,7 +226,7 @@ fn calendar_popover(
     };
 
     let popover = Popover::new(id)
-        .anchor(Corner::TopLeft)
+        .anchor(Anchor::TopLeft)
         .trigger(trigger)
         .content(move |_, _, _| div().p_2().child(Calendar::new(&cal).number_of_months(1)));
 

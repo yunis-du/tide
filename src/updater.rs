@@ -258,11 +258,11 @@ fn open_available_dialog(
             .child(body)
             .w(dialog_width)
             .margin_top(margin_top)
-            .confirm()
             .button_props(
                 DialogButtonProps::default()
                     .ok_text(download_label.clone())
-                    .cancel_text(later_label.clone()),
+                    .cancel_text(later_label.clone())
+                    .show_cancel(true),
             )
             .on_ok({
                 let download_url = download_url.clone();
@@ -314,7 +314,7 @@ impl Render for ProgressView {
         v_flex()
             .gap_3()
             .child(div().text_sm().child(self.desc.clone()))
-            .child(Progress::new().value(percent))
+            .child(Progress::new("update-progress").value(percent))
             .child(
                 div()
                     .text_xs()
@@ -571,11 +571,11 @@ fn open_ready_dialog(window: &mut Window, cx: &mut App, version: String, install
             .child(div().text_sm().child(desc.clone()))
             .w(dialog_width)
             .margin_top(margin_top)
-            .confirm()
             .button_props(
                 DialogButtonProps::default()
                     .ok_text(install_label.clone())
-                    .cancel_text(later_label.clone()),
+                    .cancel_text(later_label.clone())
+                    .show_cancel(true),
             )
             .on_ok(move |_, _, cx| {
                 match launch_installer(&installer_path) {
@@ -609,7 +609,6 @@ fn open_info_dialog(window: &mut Window, cx: &mut App, title: String, desc: Stri
             .child(div().text_sm().child(desc.clone()))
             .w(dialog_width)
             .margin_top(margin_top)
-            .alert()
             .button_props(DialogButtonProps::default().ok_text(ok_label.clone()))
             .on_ok(|_, _, _| true)
     });

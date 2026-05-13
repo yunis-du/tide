@@ -1,4 +1,4 @@
-use gpui::{App, Context, Corner, Window, prelude::*};
+use gpui::{Anchor, App, Context, Window, prelude::*};
 use gpui_component::{
     IconName, Sizable, ThemeMode, TitleBar,
     button::{Button, ButtonVariants},
@@ -74,13 +74,13 @@ impl Render for TitleBarView {
                             .small()
                             .ghost()
                             .dropdown_menu(move |this, _, cx| Self::render_settings_menu(this, cx))
-                            .anchor(Corner::TopRight),
+                            .anchor(Anchor::TopRight),
                     )
                     .child(
                         Button::new("github")
                             .cursor_pointer()
                             .tooltip(i18n_titlebar(cx, "github_tooltip"))
-                            .icon(IconName::GitHub)
+                            .icon(IconName::Github)
                             .small()
                             .ghost()
                             .on_click(|_, _, cx| cx.open_url("https://github.com/yunis-du/tide")),

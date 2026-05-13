@@ -125,14 +125,10 @@ impl TideData {
         self.sidebar_selection = selection;
     }
 
-    pub fn default_group_id_for_creation(&self) -> String {
+    pub fn group_id_for_creation(&self) -> Option<String> {
         match &self.sidebar_selection {
-            SidebarSelection::Group(id) => id.clone(),
-            _ => self
-                .task_groups
-                .first()
-                .map(|l| l.id.clone())
-                .unwrap_or_else(|| "my-tasks".to_string()),
+            SidebarSelection::Group(id) => Some(id.clone()),
+            _ => None,
         }
     }
 
@@ -326,7 +322,7 @@ impl TideDataStore {
         &self,
         cx: &mut C,
         f: impl FnOnce(&mut TideData, &mut Context<TideData>) -> R,
-    ) -> C::Result<R> {
+    ) -> R {
         self.entity.update(cx, f)
     }
 }
@@ -347,19 +343,17 @@ where
             data.clone()
         });
 
-        if let Ok(data) = current {
-            cx.background_executor()
-                .spawn(async move {
-                    if let Err(e) = save_data(&data) {
-                        error!(error = %e, action = action_name, "Failed to save tasks");
-                    } else {
-                        info!(action = action_name, "Tasks saved successfully");
-                    }
-                })
-                .await;
-        }
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(e) = save_data(&current) {
+                    error!(error = %e, action = action_name, "Failed to save tasks");
+                } else {
+                    info!(action = action_name, "Tasks saved successfully");
+                }
+            })
+            .await;
 
-        cx.update(|cx| cx.refresh_windows()).ok();
+        cx.update(|cx| cx.refresh_windows());
     })
     .detach();
 }

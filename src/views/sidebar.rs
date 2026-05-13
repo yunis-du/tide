@@ -1,5 +1,5 @@
 use gpui::{
-    AnyElement, Context, Corner, ElementId, Entity, FontWeight, IntoElement, MouseDownEvent,
+    Anchor, AnyElement, Context, ElementId, Entity, FontWeight, IntoElement, MouseDownEvent,
     Render, Subscription, Window, div, prelude::*, px, rgba,
 };
 use gpui_component::{
@@ -287,11 +287,11 @@ impl SidebarView {
                             )
                             .w(dialog_width)
                             .margin_top(margin_top)
-                            .confirm()
                             .button_props(
                                 DialogButtonProps::default()
                                     .ok_text(i18n_sidebar(cx, "confirm_delete"))
                                     .cancel_text(i18n_sidebar(cx, "cancel"))
+                                    .show_cancel(true)
                                     .ok_variant(ButtonVariant::Danger),
                             )
                             .on_ok(move |_, _, cx| {
@@ -318,7 +318,7 @@ impl SidebarView {
                 group_name.to_string(),
                 inp,
             ))
-            .anchor(Corner::TopRight)
+            .anchor(Anchor::TopRight)
             .into_any_element()
     }
 

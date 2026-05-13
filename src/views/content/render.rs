@@ -14,7 +14,7 @@ use rust_i18n::t;
 use crate::{
     components::TaskForm,
     helpers::{i18n_content, interactive_accent, locale},
-    state::{Task, TideDataStore, TideStore, update_data_and_save},
+    state::{SidebarSelection, Task, TideDataStore, TideStore, update_data_and_save},
 };
 
 use super::{
@@ -22,7 +22,7 @@ use super::{
     view::TaskView,
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum ContentEmptyState {
     NoTasks,
     AllCompleted,
@@ -32,9 +32,9 @@ impl ContentEmptyState {
     fn for_task_counts(
         has_pending: bool,
         has_completed: bool,
-        show_add_task_btn: bool,
+        is_showing_task_form: bool,
     ) -> Option<Self> {
-        if has_pending || !show_add_task_btn {
+        if has_pending || is_showing_task_form {
             return None;
         }
 
@@ -102,6 +102,7 @@ impl Render for TaskView {
             .show_add_task_btn();
 
         let data = cx.global::<TideDataStore>().read(cx);
+        let can_create_task = matches!(data.sidebar_selection(), SidebarSelection::Group(_));
         let visible_tasks = data
             .visible_tasks()
             .into_iter()
@@ -168,7 +169,7 @@ impl Render for TaskView {
         let empty_state = ContentEmptyState::for_task_counts(
             !pending.is_empty(),
             !completed_items.is_empty(),
-            show_add_task_btn,
+            !show_add_task_btn && can_create_task,
         );
         let has_empty_state = empty_state.is_some();
         let disable_pending_scroll = has_empty_state;
@@ -260,8 +261,8 @@ impl Render for TaskView {
             .track_focus(&self.focus_handle)
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, _| {
-                    this.focus_handle.focus(window);
+                cx.listener(|this, _, window, cx| {
+                    this.focus_handle.focus(window, cx);
                 }),
             )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
@@ -297,7 +298,9 @@ impl Render for TaskView {
                         t.flex_basis(relative(0.6)).flex_shrink_0()
                     })
                     .overflow_hidden()
-                    .when(show_add_task_btn, |t| t.child(add_task_btn))
+                    .when(show_add_task_btn && can_create_task, |t| {
+                        t.child(add_task_btn)
+                    })
                     .child(
                         v_flex()
                             .id("pending-list")
@@ -318,9 +321,15 @@ impl Render for TaskView {
                                         v_flex()
                                             .flex_1()
                                             .children(batch_els)
-                                            .when(!show_add_task_btn, |t| t.child(task_form))
+                                            .when(!show_add_task_btn && can_create_task, |t| {
+                                                t.child(task_form)
+                                            })
                                             .when_some(empty_state, |t, state| {
-                                                t.child(Self::render_empty_state(cx, state))
+                                                t.child(Self::render_empty_state(
+                                                    cx,
+                                                    state,
+                                                    can_create_task,
+                                                ))
                                             })
                                             .children(rest_els)
                                             .when(!has_empty_state, |t| t.child(end_drop_zone)),
@@ -396,9 +405,18 @@ impl Render for TaskView {
 }
 
 impl TaskView {
-    fn render_empty_state(cx: &mut Context<Self>, state: ContentEmptyState) -> AnyElement {
+    fn render_empty_state(
+        cx: &mut Context<Self>,
+        state: ContentEmptyState,
+        can_create_task: bool,
+    ) -> AnyElement {
         let fg = cx.theme().foreground;
         let muted_fg = cx.theme().muted_foreground;
+        let desc_key = if state == ContentEmptyState::NoTasks && !can_create_task {
+            "empty_task_desc_select_group"
+        } else {
+            state.desc_key()
+        };
 
         div()
             .id(state.view_id())
@@ -430,7 +448,7 @@ impl TaskView {
                         div()
                             .text_xs()
                             .text_color(muted_fg)
-                            .child(i18n_content(cx, state.desc_key())),
+                            .child(i18n_content(cx, desc_key)),
                     ),
             )
             .into_any_element()

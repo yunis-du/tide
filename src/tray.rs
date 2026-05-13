@@ -284,12 +284,11 @@ mod platform {
         }
 
         match cx.update(|cx| open_main_window(cx)) {
-            Ok(Ok(handle)) => {
+            Ok(handle) => {
                 *main_window = handle;
                 let _ = activate_window(cx, *main_window).await;
             }
-            Ok(Err(e)) => error!(error = %e, "failed to reopen main window"),
-            Err(e) => error!(error = %e, "failed to update app for reopen"),
+            Err(e) => error!(error = %e, "failed to reopen main window"),
         }
     }
 

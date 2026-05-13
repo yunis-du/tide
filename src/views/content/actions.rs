@@ -1,4 +1,4 @@
-use gpui::{Context, Window, div, prelude::*, px};
+use gpui::{App, Context, Window, div, prelude::*, px};
 use gpui_component::{ActiveTheme, WindowExt, button::ButtonVariant, dialog::DialogButtonProps};
 
 use crate::{
@@ -34,28 +34,38 @@ impl TaskView {
         let title = this.title_input.read(cx).value().to_string();
         let trimmed = title.trim().to_string();
         if !trimmed.is_empty() {
-            let list_id = cx
-                .global::<TideDataStore>()
-                .read(cx)
-                .default_group_id_for_creation();
+            let list_id = {
+                let data = cx.global::<TideDataStore>().read(cx);
+                edit_task_id
+                    .as_ref()
+                    .and_then(|id| {
+                        data.tasks
+                            .iter()
+                            .find(|task| task.id == *id)
+                            .map(|task| task.group_id.clone())
+                    })
+                    .or_else(|| data.group_id_for_creation())
+            };
             let details = this.details_input.read(cx).value().to_string();
             let details_trimmed = details.trim().to_string();
-            let mut task = Task::new(list_id, trimmed);
-            if !details_trimmed.is_empty() {
-                task.details = Some(details_trimmed);
-            }
-            task.due_date = this.pending_due_date;
-            let idx = this.batch_count;
-            this.batch_count += 1;
-            let etid = edit_task_id.clone();
-            update_data_and_save(cx, "create_task", move |data, _| {
-                if let Some(tid) = etid {
-                    task.id = tid;
-                    data.update_task(task);
-                } else {
-                    data.insert_task(idx, task);
+            if let Some(list_id) = list_id {
+                let mut task = Task::new(list_id, trimmed);
+                if !details_trimmed.is_empty() {
+                    task.details = Some(details_trimmed);
                 }
-            });
+                task.due_date = this.pending_due_date;
+                let idx = this.batch_count;
+                this.batch_count += 1;
+                let etid = edit_task_id.clone();
+                update_data_and_save(cx, "create_task", move |data, _| {
+                    if let Some(tid) = etid {
+                        task.id = tid;
+                        data.update_task(task);
+                    } else {
+                        data.insert_task(idx, task);
+                    }
+                });
+            }
         } else {
             update_status(cx, move |status, _| {
                 status.set_edit_task_id(None);
@@ -325,14 +335,14 @@ impl TaskView {
                 )
                 .w(dialog_width)
                 .margin_top(margin_top)
-                .confirm()
                 .button_props(
                     DialogButtonProps::default()
                         .ok_text(i18n_content(cx, "confirm_delete"))
                         .cancel_text(i18n_content(cx, "cancel"))
+                        .show_cancel(true)
                         .ok_variant(ButtonVariant::Danger),
                 )
-                .on_ok(move |_, _, cx| {
+                .on_ok(move |_, _, cx: &mut App| {
                     let id = id_for_del.clone();
                     let id_for_state = id.clone();
                     if is_subtask {

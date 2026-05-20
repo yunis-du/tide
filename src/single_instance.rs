@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use gpui::{App, AsyncApp, WindowHandle};
 use gpui_component::Root;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, WAIT_OBJECT_0,
 };
@@ -106,8 +106,8 @@ pub fn spawn_watcher(cx: &App, guard: Guard, main_window: WindowHandle<Root>) {
     cx.spawn(async move |cx: &mut AsyncApp| {
         loop {
             let signaled = unsafe { WaitForSingleObject(event_handle, 0) == WAIT_OBJECT_0 };
-            if signaled && let Err(e) = cx.update(|cx| activate(cx, main_window)) {
-                error!(error = %e, "failed to handle single-instance activation");
+            if signaled {
+                let _ = cx.update(|cx| activate(cx, main_window));
             }
             cx.background_executor()
                 .timer(Duration::from_millis(200))

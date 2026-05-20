@@ -4,7 +4,9 @@ use gpui::{
     Window, div, img, prelude::*, px, relative, rgba,
 };
 use gpui_component::{
-    ActiveTheme, Icon, IconName, h_flex,
+    ActiveTheme, Icon, IconName, Sizable,
+    button::{Button, ButtonVariants},
+    h_flex,
     input::Escape,
     scroll::{ScrollableElement, Scrollbar},
     v_flex,
@@ -12,6 +14,7 @@ use gpui_component::{
 use rust_i18n::t;
 
 use crate::{
+    assets::CustomIconName,
     components::TaskForm,
     helpers::{i18n_content, interactive_accent, locale},
     state::{DueDate, SidebarSelection, Task, TideDataStore, TideStore, update_data_and_save},
@@ -193,6 +196,10 @@ impl Render for TaskView {
             locale = locale(cx).as_str()
         )
         .into();
+        let completed_ids = completed_items
+            .iter()
+            .map(|(id, _, _, _)| id.clone())
+            .collect::<Vec<_>>();
 
         let task_form = TaskForm::new(
             self.title_input.clone(),
@@ -387,11 +394,31 @@ impl Render for TaskView {
                             )
                             .child(
                                 div()
+                                    .flex_1()
                                     .text_sm()
                                     .font_weight(FontWeight(500.))
                                     .text_color(fg)
                                     .child(completed_label),
-                            ),
+                            )
+                            .when(completed_expanded && completed_items.len() > 1, |t| {
+                                let clear_completed_ids = completed_ids.clone();
+                                t.child(
+                                    Button::new("clear-completed")
+                                        .icon(CustomIconName::Trash)
+                                        .ghost()
+                                        .small()
+                                        .cursor_pointer()
+                                        .tooltip(i18n_content(cx, "clear_completed"))
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            cx.stop_propagation();
+                                            this.open_clear_completed_confirm(
+                                                clear_completed_ids.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        })),
+                                )
+                            }),
                     )
                     .when(completed_expanded, |t| {
                         t.child(

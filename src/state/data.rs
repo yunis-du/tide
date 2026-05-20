@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 
 use anyhow::Result;
@@ -242,6 +243,17 @@ impl TideData {
             .retain(|t| t.id != task_id && t.parent_id.as_deref() != Some(task_id));
     }
 
+    pub fn remove_completed_tasks(&mut self, task_ids: &[String]) {
+        let task_ids = task_ids.iter().map(String::as_str).collect::<HashSet<_>>();
+        self.tasks.retain(|task| {
+            !task_ids.contains(task.id.as_str())
+                && !task
+                    .parent_id
+                    .as_deref()
+                    .is_some_and(|parent_id| task_ids.contains(parent_id))
+        });
+    }
+
     pub fn toggle_task_completion(&mut self, task_id: &str) {
         let Some(current) = self.tasks.iter().find(|t| t.id == task_id) else {
             return;
@@ -448,5 +460,29 @@ mod tests {
         assert_eq!(data.tasks[1].completed_at, None);
         assert!(!data.tasks[1].is_starred);
         assert_eq!(data.tasks[1].parent_id, None);
+    }
+
+    #[test]
+    fn removes_completed_tasks_and_their_children() {
+        let mut parent = Task::new("my-group", "Done parent");
+        parent.id = "parent".to_string();
+        parent.is_completed = true;
+
+        let mut child = Task::new("my-group", "Child");
+        child.id = "child".to_string();
+        child.parent_id = Some(parent.id.clone());
+
+        let mut other = Task::new("my-group", "Other");
+        other.id = "other".to_string();
+
+        let mut data = TideData {
+            tasks: vec![parent, child, other],
+            ..Default::default()
+        };
+
+        data.remove_completed_tasks(&["parent".to_string()]);
+
+        assert_eq!(data.tasks.len(), 1);
+        assert_eq!(data.tasks[0].id, "other");
     }
 }

@@ -1,6 +1,6 @@
 use gpui::{App, Context, Window, prelude::*, px};
 use gpui_component::{
-    WindowExt,
+    ActiveTheme, WindowExt,
     button::{Button, ButtonVariant, ButtonVariants},
     dialog::{DialogAction, DialogButtonProps, DialogClose, DialogFooter},
 };
@@ -381,6 +381,76 @@ impl TaskView {
                             if this.due_picker_for.as_deref() == Some(id_for_state.as_str()) {
                                 this.due_picker_for = None;
                             }
+                            cx.notify();
+                        })
+                        .ok();
+                    true
+                })
+        });
+    }
+
+    pub(super) fn open_clear_completed_confirm(
+        &mut self,
+        task_ids: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if task_ids.is_empty() {
+            return;
+        }
+
+        let weak = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, window, cx| {
+            let ids_for_clear = task_ids.clone();
+            let weak_for_ok = weak.clone();
+            let dialog_width = px(360.);
+            let dialog_height = px(170.);
+            let margin_top = ((window.viewport_size().height - dialog_height) / 2.).max(px(0.));
+            let confirm_delete = i18n_content(cx, "confirm_delete");
+            let cancel = i18n_content(cx, "cancel");
+            dialog
+                .title(i18n_content(cx, "clear_completed_title"))
+                .child(
+                    gpui::div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(i18n_content(cx, "clear_completed_desc")),
+                )
+                .w(dialog_width)
+                .margin_top(margin_top)
+                .button_props(
+                    DialogButtonProps::default()
+                        .ok_text(confirm_delete.clone())
+                        .cancel_text(cancel.clone())
+                        .show_cancel(true)
+                        .ok_variant(ButtonVariant::Danger),
+                )
+                .footer(
+                    DialogFooter::new()
+                        .child(
+                            DialogClose::new()
+                                .child(Button::new("cancel-clear-completed").label(cancel)),
+                        )
+                        .child(
+                            DialogAction::new().child(
+                                Button::new("confirm-clear-completed")
+                                    .label(confirm_delete)
+                                    .with_variant(ButtonVariant::Danger),
+                            ),
+                        ),
+                )
+                .on_ok(move |_, _, cx: &mut App| {
+                    let ids = ids_for_clear.clone();
+                    update_data_and_save(cx, "clear_completed", move |data, _| {
+                        data.remove_completed_tasks(&ids);
+                    });
+                    weak_for_ok
+                        .update(cx, move |this, cx| {
+                            this.selected_task_id = None;
+                            this.selected_subtask_id = None;
+                            this.hovered_task_id = None;
+                            this.hovered_subtask_id = None;
+                            this.due_picker_for = None;
                             cx.notify();
                         })
                         .ok();

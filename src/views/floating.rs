@@ -231,8 +231,6 @@ impl Render for FloatingGroupView {
         v_flex().size_full().bg(bg).child(header).child(
             v_flex()
                 .id("floating-list")
-                .flex_1()
-                .min_h_0()
                 .size_full()
                 .px_2()
                 .py_2()

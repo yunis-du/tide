@@ -590,7 +590,6 @@ impl Render for SidebarView {
                     v_flex()
                         .id("sidebar-groups-scroll")
                         .size_full()
-                        .min_h_0()
                         .overflow_y_scrollbar()
                         .child(Self::render_group_list(
                             cx,

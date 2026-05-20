@@ -397,8 +397,7 @@ impl Render for TaskView {
                         t.child(
                             v_flex()
                                 .id("completed-list")
-                                .flex_1()
-                                .min_h_0()
+                                .size_full()
                                 .overflow_y_scrollbar()
                                 .children(completed_els),
                         )

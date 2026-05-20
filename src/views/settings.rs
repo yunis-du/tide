@@ -142,8 +142,7 @@ impl Render for SettingsView {
             )
             .child(
                 v_flex()
-                    .flex_1()
-                    .min_h_0()
+                    .size_full()
                     .px_6()
                     .py_4()
                     .overflow_y_scrollbar()

@@ -129,23 +129,12 @@ impl Render for SettingsView {
             .flex_1()
             .h_full()
             .bg(cx.theme().background)
-            .overflow_hidden()
-            .child(
-                div()
-                    .px_6()
-                    .pt_6()
-                    .pb_2()
-                    .text_xl()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(cx.theme().foreground)
-                    .child(i18n_settings(cx, "title")),
-            )
+            .overflow_y_scrollbar()
             .child(
                 v_flex()
                     .size_full()
                     .px_6()
                     .py_4()
-                    .overflow_y_scrollbar()
                     .child(
                         v_flex()
                             .w_full()

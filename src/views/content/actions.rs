@@ -1,5 +1,9 @@
-use gpui::{App, Context, Window, div, prelude::*, px};
-use gpui_component::{ActiveTheme, WindowExt, button::ButtonVariant, dialog::DialogButtonProps};
+use gpui::{App, Context, Window, prelude::*, px};
+use gpui_component::{
+    WindowExt,
+    button::{Button, ButtonVariant, ButtonVariants},
+    dialog::{DialogAction, DialogButtonProps, DialogClose, DialogFooter},
+};
 
 use crate::{
     helpers::i18n_content,
@@ -308,11 +312,6 @@ impl TaskView {
         } else {
             "delete_task_title"
         };
-        let desc_key = if is_subtask {
-            "delete_subtask_desc"
-        } else {
-            "delete_task_desc"
-        };
         let action_label = if is_subtask {
             "delete_subtask"
         } else {
@@ -325,22 +324,29 @@ impl TaskView {
             let dialog_width = px(360.);
             let dialog_height = px(160.);
             let margin_top = ((window.viewport_size().height - dialog_height) / 2.).max(px(0.));
+            let confirm_delete = i18n_content(cx, "confirm_delete");
+            let cancel = i18n_content(cx, "cancel");
             dialog
                 .title(i18n_content(cx, title_key))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(i18n_content(cx, desc_key)),
-                )
                 .w(dialog_width)
                 .margin_top(margin_top)
                 .button_props(
                     DialogButtonProps::default()
-                        .ok_text(i18n_content(cx, "confirm_delete"))
-                        .cancel_text(i18n_content(cx, "cancel"))
+                        .ok_text(confirm_delete.clone())
+                        .cancel_text(cancel.clone())
                         .show_cancel(true)
                         .ok_variant(ButtonVariant::Danger),
+                )
+                .footer(
+                    DialogFooter::new()
+                        .child(DialogClose::new().child(Button::new("cancel-delete").label(cancel)))
+                        .child(
+                            DialogAction::new().child(
+                                Button::new("confirm-delete")
+                                    .label(confirm_delete)
+                                    .with_variant(ButtonVariant::Danger),
+                            ),
+                        ),
                 )
                 .on_ok(move |_, _, cx: &mut App| {
                     let id = id_for_del.clone();

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::NaiveTime;
 use gpui::{App, AppContext, Bounds, Context, Entity, Global, Pixels};
 use gpui_component::ThemeMode;
 use serde::{Deserialize, Serialize};
@@ -39,6 +40,37 @@ impl Default for DefaultView {
 
 const fn default_true() -> bool {
     true
+}
+
+fn default_no_time_reminder() -> NaiveTime {
+    NaiveTime::from_hms_opt(9, 0, 0).expect("valid default notification time")
+}
+
+fn default_before_due_minutes() -> Vec<i64> {
+    vec![15]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationSettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_no_time_reminder")]
+    pub default_no_time_reminder: NaiveTime,
+    #[serde(default = "default_before_due_minutes")]
+    pub before_due_minutes: Vec<i64>,
+    #[serde(default = "default_no_time_reminder")]
+    pub overdue_daily_time: NaiveTime,
+}
+
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            default_no_time_reminder: default_no_time_reminder(),
+            before_due_minutes: default_before_due_minutes(),
+            overdue_daily_time: default_no_time_reminder(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +178,8 @@ pub struct Tide {
     completed_expanded_by_default: bool,
     #[serde(default)]
     auto_check_updates: bool,
+    #[serde(default)]
+    notifications: NotificationSettings,
     #[serde(skip)]
     status: TideStatus,
 }
@@ -187,6 +221,10 @@ impl Tide {
         self.auto_check_updates
     }
 
+    pub fn notifications(&self) -> &NotificationSettings {
+        &self.notifications
+    }
+
     pub fn status(&self) -> &TideStatus {
         &self.status
     }
@@ -225,6 +263,10 @@ impl Tide {
 
     pub fn set_auto_check_updates(&mut self, enabled: bool) {
         self.auto_check_updates = enabled;
+    }
+
+    pub fn set_notifications_enabled(&mut self, enabled: bool) {
+        self.notifications.enabled = enabled;
     }
 }
 

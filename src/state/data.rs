@@ -1,7 +1,7 @@
 use std::fs;
 
 use anyhow::Result;
-use chrono::{Local, NaiveDate};
+use chrono::{Local, NaiveDate, NaiveTime};
 use gpui::{App, AppContext, Context, Entity, Global};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,13 +23,48 @@ pub fn new_id() -> String {
     format!("{t}{n:04}")
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+pub struct DueDate {
+    pub date: NaiveDate,
+    pub time: Option<NaiveTime>,
+}
+
+impl DueDate {
+    pub fn new(date: NaiveDate, time: Option<NaiveTime>) -> Self {
+        Self { date, time }
+    }
+}
+
+impl<'de> Deserialize<'de> for DueDate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum DueDateRepr {
+            Date(NaiveDate),
+            DateTime {
+                date: NaiveDate,
+                #[serde(default)]
+                time: Option<NaiveTime>,
+            },
+        }
+
+        match DueDateRepr::deserialize(deserializer)? {
+            DueDateRepr::Date(date) => Ok(Self::new(date, None)),
+            DueDateRepr::DateTime { date, time } => Ok(Self::new(date, time)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Task {
     pub id: String,
     pub group_id: String,
     pub title: String,
     pub details: Option<String>,
-    pub due_date: Option<NaiveDate>,
+    pub due_date: Option<DueDate>,
     pub is_completed: bool,
     pub completed_at: Option<NaiveDate>,
     pub is_starred: bool,
@@ -226,9 +261,9 @@ impl TideData {
         }
     }
 
-    pub fn set_task_due_date(&mut self, task_id: &str, date: Option<NaiveDate>) {
+    pub fn set_task_due_date(&mut self, task_id: &str, due: Option<DueDate>) {
         if let Some(task) = self.tasks.iter_mut().find(|t| t.id == task_id) {
-            task.due_date = date;
+            task.due_date = due;
         }
     }
 

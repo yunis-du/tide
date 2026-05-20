@@ -1,19 +1,23 @@
-use chrono::NaiveDate;
 use gpui::{Context, Entity, FocusHandle, ScrollHandle, Subscription, Window, prelude::*};
 use gpui_component::{
     calendar::{CalendarEvent, CalendarState, Date},
     input::{InputEvent, InputState},
 };
 
-use crate::state::{TideStore, tide::update_status, update_data_and_save};
+use crate::{
+    helpers::{due_time_label, parse_due_time},
+    state::{DueDate, TideStore, update_data_and_save},
+};
 
 pub struct TaskView {
     pub(super) title_input: Entity<InputState>,
     pub(super) details_input: Entity<InputState>,
+    pub(super) time_input: Entity<InputState>,
     pub(super) calendar_state: Entity<CalendarState>,
-    pub(super) pending_due_date: Option<NaiveDate>,
+    pub(super) pending_due_date: Option<DueDate>,
 
     pub(super) due_picker_calendar_state: Entity<CalendarState>,
+    pub(super) due_picker_time_input: Entity<InputState>,
     pub(super) due_picker_for: Option<String>,
     pub(super) focus_handle: FocusHandle,
     pub(super) pending_scroll_handle: ScrollHandle,
@@ -35,8 +39,10 @@ impl TaskView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let title_input = cx.new(|cx| InputState::new(window, cx));
         let details_input = cx.new(|cx| InputState::new(window, cx).auto_grow(1, 5));
+        let time_input = cx.new(|cx| InputState::new(window, cx));
         let calendar_state = cx.new(|cx| CalendarState::new(window, cx));
         let due_picker_calendar_state = cx.new(|cx| CalendarState::new(window, cx));
+        let due_picker_time_input = cx.new(|cx| InputState::new(window, cx));
 
         let mut subs = Vec::new();
 
@@ -64,13 +70,29 @@ impl TaskView {
             |this: &mut Self, _, event: &CalendarEvent, _window, cx| match event {
                 CalendarEvent::Selected(date) => {
                     if let Some(picked) = date.start() {
-                        this.pending_due_date = Some(picked);
-
-                        update_status(cx, move |status, _| {
-                            status.set_task_calendar_open(false);
-                        });
+                        let time_value = this.time_input.read(cx).value().to_string();
+                        this.pending_due_date =
+                            Some(DueDate::new(picked, parse_due_time(&time_value)));
+                        cx.notify();
                     }
                 }
+            },
+        ));
+
+        subs.push(cx.subscribe_in(
+            &time_input,
+            window,
+            |this: &mut Self, _, event: &InputEvent, _window, cx| match event {
+                InputEvent::Change => {
+                    let Some(mut due) = this.pending_due_date else {
+                        return;
+                    };
+                    let value = this.time_input.read(cx).value().to_string();
+                    due.time = parse_due_time(&value);
+                    this.pending_due_date = Some(due);
+                    cx.notify();
+                }
+                _ => {}
             },
         ));
 
@@ -80,17 +102,44 @@ impl TaskView {
             |this: &mut Self, _, event: &CalendarEvent, window, cx| match event {
                 CalendarEvent::Selected(date) => {
                     if let Some(picked) = date.start() {
-                        if let Some(id) = this.due_picker_for.take() {
+                        if let Some(id) = this.due_picker_for.clone() {
+                            let time_value =
+                                this.due_picker_time_input.read(cx).value().to_string();
+                            let due = DueDate::new(picked, parse_due_time(&time_value));
                             update_data_and_save(cx, "set_task_due_date", move |data, _| {
-                                data.set_task_due_date(&id, Some(picked));
+                                data.set_task_due_date(&id, Some(due));
                             });
                             this.due_picker_calendar_state.update(cx, |state, cx| {
-                                state.set_date(Date::Single(None), window, cx);
+                                state.set_date(Date::Single(Some(picked)), window, cx);
                             });
                             cx.notify();
                         }
                     }
                 }
+            },
+        ));
+
+        subs.push(cx.subscribe_in(
+            &due_picker_time_input,
+            window,
+            |this: &mut Self, _, event: &InputEvent, _window, cx| match event {
+                InputEvent::Change => {
+                    let Some(id) = this.due_picker_for.clone() else {
+                        return;
+                    };
+                    let value = this.due_picker_time_input.read(cx).value().to_string();
+                    let time = parse_due_time(&value);
+                    update_data_and_save(cx, "set_task_due_time", move |data, _| {
+                        if let Some(task) = data.tasks.iter_mut().find(|task| task.id == id)
+                            && let Some(mut due) = task.due_date
+                        {
+                            due.time = time;
+                            task.due_date = Some(due);
+                        }
+                    });
+                    cx.notify();
+                }
+                _ => {}
             },
         ));
 
@@ -109,9 +158,11 @@ impl TaskView {
         Self {
             title_input,
             details_input,
+            time_input,
             calendar_state,
             pending_due_date: None,
             due_picker_calendar_state,
+            due_picker_time_input,
             due_picker_for: None,
             focus_handle: cx.focus_handle(),
             pending_scroll_handle: ScrollHandle::new(),
@@ -133,21 +184,31 @@ impl TaskView {
         self.calendar_state.update(cx, |state, cx| {
             state.set_date(Date::Single(None), window, cx);
         });
+        self.time_input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+        });
     }
 
     pub(super) fn set_pending_due_date(
         &mut self,
-        date: Option<NaiveDate>,
+        due: Option<DueDate>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.pending_due_date = date;
+        self.pending_due_date = due;
         self.calendar_state.update(cx, |state, cx| {
-            let d = match date {
-                Some(d) => Date::Single(Some(d)),
+            let d = match due {
+                Some(d) => Date::Single(Some(d.date)),
                 None => Date::Single(None),
             };
             state.set_date(d, window, cx);
+        });
+        self.time_input.update(cx, |state, cx| {
+            let value = due
+                .and_then(|d| d.time)
+                .map(due_time_label)
+                .unwrap_or_default();
+            state.set_value(value, window, cx);
         });
         cx.notify();
     }

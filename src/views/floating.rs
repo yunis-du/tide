@@ -59,7 +59,7 @@ impl FloatingGroupView {
         let tid_hover = task.id.clone();
         let title = task.title.clone();
         let is_hovered = self.hovered_task_id.as_deref() == Some(task.id.as_str());
-        let due_tag_date = task.due_date.filter(|date| *date <= today);
+        let due_tag_date = task.due_date.filter(|due| due.date <= today);
         let details = task
             .details
             .as_deref()

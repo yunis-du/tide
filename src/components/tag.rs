@@ -1,6 +1,5 @@
 use std::rc::Rc;
 
-use chrono::NaiveDate;
 use gpui::{App, IntoElement, ParentElement, RenderOnce, Styled, Window, prelude::FluentBuilder};
 use gpui_component::{
     Icon, IconName, Sizable,
@@ -8,19 +7,22 @@ use gpui_component::{
     h_flex,
 };
 
-use crate::helpers::{due_date_color, due_date_label};
+use crate::{
+    helpers::{due_date_color, due_date_label},
+    state::DueDate,
+};
 
 #[derive(IntoElement)]
 pub struct DateTag {
-    date: NaiveDate,
+    due: DueDate,
     removable: bool,
     on_remove: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
 }
 
 impl DateTag {
-    pub fn new(date: NaiveDate) -> Self {
+    pub fn new(due: DueDate) -> Self {
         Self {
-            date,
+            due,
             removable: false,
             on_remove: None,
         }
@@ -39,8 +41,8 @@ impl DateTag {
 
 impl RenderOnce for DateTag {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let color = due_date_color(cx, self.date);
-        let label = due_date_label(cx, self.date);
+        let color = due_date_color(cx, self.due);
+        let label = due_date_label(cx, self.due);
 
         h_flex()
             .gap_1()

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use chrono::{Local, NaiveDate};
+use chrono::Local;
 use gpui::{
     Anchor, App, ElementId, Entity, Hsla, InteractiveElement, IntoElement, MouseButton,
     MouseDownEvent, ParentElement, RenderOnce, StatefulInteractiveElement, Styled, Window, div,
@@ -17,27 +17,34 @@ use gpui_component::{
 };
 
 use crate::{
-    helpers::i18n_content,
-    state::{TideStore, tide::update_status},
+    components::DueTimeInput,
+    helpers::{i18n_content, parse_due_time},
+    state::{DueDate, TideStore, tide::update_status},
 };
 
-type DueDateHandler = Rc<dyn Fn(&Option<NaiveDate>, &mut Window, &mut App) + 'static>;
+type DueDateHandler = Rc<dyn Fn(&Option<DueDate>, &mut Window, &mut App) + 'static>;
 
 #[derive(IntoElement)]
 pub struct TaskForm {
     title_input: Entity<InputState>,
     details_input: Entity<InputState>,
-    pending_due_date: Option<NaiveDate>,
+    time_input: Entity<InputState>,
+    pending_due_date: Option<DueDate>,
     calendar_state: Option<Entity<CalendarState>>,
     on_set_due_date: Option<DueDateHandler>,
     on_mouse_down_out: Option<Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static>>,
 }
 
 impl TaskForm {
-    pub fn new(title_input: Entity<InputState>, details_input: Entity<InputState>) -> Self {
+    pub fn new(
+        title_input: Entity<InputState>,
+        details_input: Entity<InputState>,
+        time_input: Entity<InputState>,
+    ) -> Self {
         Self {
             title_input,
             details_input,
+            time_input,
             pending_due_date: None,
             calendar_state: None,
             on_set_due_date: None,
@@ -45,8 +52,8 @@ impl TaskForm {
         }
     }
 
-    pub fn pending_due_date(mut self, date: Option<NaiveDate>) -> Self {
-        self.pending_due_date = date;
+    pub fn pending_due_date(mut self, due: Option<DueDate>) -> Self {
+        self.pending_due_date = due;
         self
     }
 
@@ -57,7 +64,7 @@ impl TaskForm {
 
     pub fn on_set_due_date(
         mut self,
-        handler: impl Fn(&Option<NaiveDate>, &mut Window, &mut App) + 'static,
+        handler: impl Fn(&Option<DueDate>, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_set_due_date = Some(Rc::new(handler));
         self
@@ -76,11 +83,15 @@ impl RenderOnce for TaskForm {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let title_ph = i18n_content(cx, "title_placeholder");
         let details_ph = i18n_content(cx, "details_placeholder");
+        let time_ph = i18n_content(cx, "due_time_placeholder");
         self.title_input.update(cx, |state, cx| {
             state.set_placeholder(title_ph, window, cx);
         });
         self.details_input.update(cx, |state, cx| {
             state.set_placeholder(details_ph, window, cx);
+        });
+        self.time_input.update(cx, |state, cx| {
+            state.set_placeholder(time_ph, window, cx);
         });
 
         let muted_fg = cx.theme().muted_foreground;
@@ -104,9 +115,15 @@ impl RenderOnce for TaskForm {
 
         let row = h_flex().pl(px(32.)).gap_2().items_center();
 
-        let date_row = if let Some(date) = pending {
+        let date_row = if let Some(due) = pending {
+            let cal_trigger = Button::new("form-cal")
+                .icon(IconName::Calendar)
+                .ghost()
+                .small()
+                .cursor_pointer();
+
             row.child(
-                super::DateTag::new(date)
+                super::DateTag::new(due)
                     .removable()
                     .on_remove(move |window, cx| {
                         if let Some(h) = clear_handler.as_ref() {
@@ -114,6 +131,14 @@ impl RenderOnce for TaskForm {
                         }
                     }),
             )
+            .child(calendar_popover(
+                "form-cal-popover",
+                cal_trigger,
+                calendar_state.clone(),
+                self.time_input.clone(),
+                pending,
+                set_due.clone(),
+            ))
         } else {
             let cal_trigger = Button::new("form-cal")
                 .icon(IconName::Calendar)
@@ -127,7 +152,11 @@ impl RenderOnce for TaskForm {
                 border,
                 move |window, cx| {
                     if let Some(h) = today_handler.as_ref() {
-                        h(&Some(Local::now().date_naive()), window, cx);
+                        h(
+                            &Some(DueDate::new(Local::now().date_naive(), None)),
+                            window,
+                            cx,
+                        );
                     }
                 },
             ))
@@ -138,7 +167,7 @@ impl RenderOnce for TaskForm {
                 move |window, cx| {
                     if let Some(h) = tomorrow_handler.as_ref() {
                         let tomorrow = Local::now().date_naive() + chrono::Duration::days(1);
-                        h(&Some(tomorrow), window, cx);
+                        h(&Some(DueDate::new(tomorrow, None)), window, cx);
                     }
                 },
             ))
@@ -146,6 +175,9 @@ impl RenderOnce for TaskForm {
                 "form-cal-popover",
                 cal_trigger,
                 calendar_state.clone(),
+                self.time_input.clone(),
+                pending,
+                set_due.clone(),
             ))
         };
 
@@ -220,15 +252,37 @@ fn calendar_popover(
     id: &'static str,
     trigger: Button,
     calendar_state: Option<Entity<CalendarState>>,
+    time_input: Entity<InputState>,
+    pending_due: Option<DueDate>,
+    on_set_due_date: Option<DueDateHandler>,
 ) -> gpui::AnyElement {
     let Some(cal) = calendar_state else {
         return trigger.into_any_element();
     };
 
+    let time_id = "form-due-time";
     let popover = Popover::new(id)
         .anchor(Anchor::TopLeft)
         .trigger(trigger)
-        .content(move |_, _, _| div().p_2().child(Calendar::new(&cal).number_of_months(1)));
+        .content(move |_, _, _| {
+            div()
+                .p_2()
+                .child(Calendar::new(&cal).number_of_months(1))
+                .child(div().pt_2().child(
+                    DueTimeInput::new(time_id, time_input.clone()).on_select({
+                        let on_set_due_date = on_set_due_date.clone();
+                        move |value, window, cx| {
+                            let Some(mut due) = pending_due else {
+                                return;
+                            };
+                            due.time = parse_due_time(value);
+                            if let Some(handler) = on_set_due_date.as_ref() {
+                                handler(&Some(due), window, cx);
+                            }
+                        }
+                    }),
+                ))
+        });
 
     let popover = popover.on_open_change(move |open, _, cx| {
         let is_open = *open;

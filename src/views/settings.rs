@@ -121,6 +121,7 @@ impl Render for SettingsView {
         let locale = config.locale().to_string();
         let theme = config.theme();
         let auto_check_updates = config.auto_check_updates();
+        let notifications_enabled = config.notifications().enabled;
         let border_color = cx.theme().border;
         let fg = cx.theme().foreground;
 
@@ -457,6 +458,33 @@ impl Render for SettingsView {
                                         )
                                         .into_any_element(),
                                     ],
+                                ),
+                            )
+                            .child(
+                                self.render_card(
+                                    i18n_settings(cx, "notifications"),
+                                    border_color,
+                                    fg,
+                                    [self
+                                        .render_row(
+                                            cx,
+                                            i18n_settings(cx, "task_notifications"),
+                                            i18n_settings(cx, "task_notifications_desc"),
+                                            Switch::new("task-notifications")
+                                                .checked(notifications_enabled)
+                                                .on_click(|enabled, _window, cx| {
+                                                    let enabled = *enabled;
+                                                    update_and_save(
+                                                        cx,
+                                                        "set_notifications_enabled",
+                                                        move |tide, _| {
+                                                            tide.set_notifications_enabled(enabled);
+                                                        },
+                                                    );
+                                                })
+                                                .small(),
+                                        )
+                                        .into_any_element()],
                                 ),
                             )
                             .child(

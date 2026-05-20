@@ -1,4 +1,3 @@
-use chrono::NaiveDate;
 use gpui::{
     AnyElement, Context, ElementId, IntoElement, Styled, WeakEntity, Window, anchored, deferred,
     div, prelude::*, px,
@@ -10,7 +9,11 @@ use gpui_component::{
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
 };
 
-use crate::{helpers::i18n_content, state::Task};
+use crate::{
+    components::DueTimeInput,
+    helpers::{due_time_label, i18n_content, parse_due_time},
+    state::{DueDate, Task, update_data_and_save},
+};
 
 use super::view::TaskView;
 
@@ -20,6 +23,8 @@ impl TaskView {
             return None;
         }
         let cal_state = self.due_picker_calendar_state.clone();
+        let time_input = self.due_picker_time_input.clone();
+        let id_for_time = id.to_string();
         let id_close = id.to_string();
         let border = cx.theme().border;
         let popover_bg = cx.theme().popover;
@@ -45,7 +50,28 @@ impl TaskView {
                                 cx.notify();
                             }
                         }))
-                        .child(Calendar::new(&cal_state).number_of_months(1)),
+                        .child(Calendar::new(&cal_state).number_of_months(1))
+                        .child(div().pt_2().child(
+                            DueTimeInput::new("task-due-time", time_input.clone()).on_select(
+                                move |value, _window, cx| {
+                                    let id = id_for_time.clone();
+                                    let time = parse_due_time(value);
+                                    update_data_and_save(
+                                        cx,
+                                        "set_task_due_time",
+                                        move |data, _| {
+                                            if let Some(task) =
+                                                data.tasks.iter_mut().find(|task| task.id == id)
+                                                && let Some(mut due) = task.due_date
+                                            {
+                                                due.time = time;
+                                                task.due_date = Some(due);
+                                            }
+                                        },
+                                    );
+                                },
+                            ),
+                        )),
                 ),
             )
             .with_priority(1)
@@ -56,7 +82,7 @@ impl TaskView {
     pub(super) fn task_menu_builder(
         weak: WeakEntity<Self>,
         task_id: String,
-        task_due: Option<NaiveDate>,
+        task_due: Option<DueDate>,
     ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
         move |menu, _window, cx| {
             let add_due_label = i18n_content(cx, "add_due_date");
@@ -75,10 +101,22 @@ impl TaskView {
                                 this.due_picker_for = Some(id);
                                 this.due_picker_calendar_state.update(cx, |state, cx| {
                                     let d = match task_due {
-                                        Some(d) => Date::Single(Some(d)),
+                                        Some(d) => Date::Single(Some(d.date)),
                                         None => Date::Single(None),
                                     };
                                     state.set_date(d, window, cx);
+                                });
+                                this.due_picker_time_input.update(cx, |state, cx| {
+                                    state.set_placeholder(
+                                        i18n_content(cx, "due_time_placeholder"),
+                                        window,
+                                        cx,
+                                    );
+                                    let value = task_due
+                                        .and_then(|due| due.time)
+                                        .map(due_time_label)
+                                        .unwrap_or_default();
+                                    state.set_value(value, window, cx);
                                 });
                                 cx.notify();
                             })
@@ -123,7 +161,7 @@ impl TaskView {
     pub(super) fn subtask_menu_builder(
         weak: WeakEntity<Self>,
         sub_id: String,
-        sub_due: Option<NaiveDate>,
+        sub_due: Option<DueDate>,
     ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
         move |menu, _window, cx| {
             let add_due_label = i18n_content(cx, "add_due_date");
@@ -141,10 +179,22 @@ impl TaskView {
                                 this.due_picker_for = Some(id);
                                 this.due_picker_calendar_state.update(cx, |state, cx| {
                                     let d = match sub_due {
-                                        Some(d) => Date::Single(Some(d)),
+                                        Some(d) => Date::Single(Some(d.date)),
                                         None => Date::Single(None),
                                     };
                                     state.set_date(d, window, cx);
+                                });
+                                this.due_picker_time_input.update(cx, |state, cx| {
+                                    state.set_placeholder(
+                                        i18n_content(cx, "due_time_placeholder"),
+                                        window,
+                                        cx,
+                                    );
+                                    let value = sub_due
+                                        .and_then(|due| due.time)
+                                        .map(due_time_label)
+                                        .unwrap_or_default();
+                                    state.set_value(value, window, cx);
                                 });
                                 cx.notify();
                             })

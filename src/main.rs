@@ -29,6 +29,7 @@ mod assets;
 mod autostart;
 mod components;
 mod helpers;
+mod notifications;
 #[cfg(target_os = "windows")]
 mod single_instance;
 mod state;
@@ -311,6 +312,7 @@ fn main() {
         // Refresh the tray badge whenever task data changes.
         cx.observe(&tasks_entity, |_, cx| tray::update_badge(cx))
             .detach();
+        notifications::spawn(cx);
 
         cx.on_action(|action: &ThemeAction, cx: &mut App| {
             let mode = match action {

@@ -14,7 +14,7 @@ use rust_i18n::t;
 use crate::{
     components::TaskForm,
     helpers::{i18n_content, interactive_accent, locale},
-    state::{SidebarSelection, Task, TideDataStore, TideStore, update_data_and_save},
+    state::{DueDate, SidebarSelection, Task, TideDataStore, TideStore, update_data_and_save},
 };
 
 use super::{
@@ -194,15 +194,19 @@ impl Render for TaskView {
         )
         .into();
 
-        let task_form = TaskForm::new(self.title_input.clone(), self.details_input.clone())
-            .pending_due_date(self.pending_due_date)
-            .calendar_state(self.calendar_state.clone())
-            .on_set_due_date(cx.listener(|this, date: &Option<NaiveDate>, window, cx| {
-                this.set_pending_due_date(*date, window, cx);
-            }))
-            .on_mouse_down_out(cx.listener(|this, _, window, cx| {
-                Self::close_form(this, window, cx);
-            }));
+        let task_form = TaskForm::new(
+            self.title_input.clone(),
+            self.details_input.clone(),
+            self.time_input.clone(),
+        )
+        .pending_due_date(self.pending_due_date)
+        .calendar_state(self.calendar_state.clone())
+        .on_set_due_date(cx.listener(|this, date: &Option<DueDate>, window, cx| {
+            this.set_pending_due_date(*date, window, cx);
+        }))
+        .on_mouse_down_out(cx.listener(|this, _, window, cx| {
+            Self::close_form(this, window, cx);
+        }));
 
         let add_task_btn = {
             let accent = interactive_accent(cx.theme());

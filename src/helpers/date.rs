@@ -1,7 +1,9 @@
-use chrono::{Datelike, Local, NaiveDate, Weekday};
+use chrono::{Datelike, Local, NaiveTime, Timelike, Weekday};
 use gpui::{App, Hsla};
 use gpui_component::ActiveTheme;
 use rust_i18n::t;
+
+use crate::state::DueDate;
 
 use super::{i18n_content, locale};
 
@@ -18,11 +20,12 @@ pub fn weekday_label(wd: Weekday, locale: &str) -> String {
     t!(key, locale = locale).into()
 }
 
-pub fn due_date_label(cx: &App, date: NaiveDate) -> String {
+pub fn due_date_label(cx: &App, due: DueDate) -> String {
+    let date = due.date;
     let today = Local::now().date_naive();
     let delta = (date - today).num_days();
     let l = locale(cx);
-    match delta {
+    let label: String = match delta {
         0 => i18n_content(cx, "today"),
         1 => i18n_content(cx, "tomorrow"),
         -1 => i18n_content(cx, "yesterday"),
@@ -40,11 +43,30 @@ pub fn due_date_label(cx: &App, date: NaiveDate) -> String {
             locale = l.as_str()
         )
         .into(),
+    };
+
+    match due.time {
+        Some(time) => format!("{label} {}", due_time_label(time)),
+        None => label,
     }
 }
 
-pub fn due_date_color(cx: &App, date: NaiveDate) -> Hsla {
+pub fn due_time_label(time: NaiveTime) -> String {
+    format!("{:02}:{:02}", time.hour(), time.minute())
+}
+
+pub fn parse_due_time(value: &str) -> Option<NaiveTime> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    NaiveTime::parse_from_str(trimmed, "%H:%M").ok()
+}
+
+pub fn due_date_color(cx: &App, due: DueDate) -> Hsla {
     let today = Local::now().date_naive();
+    let date = due.date;
     if date < today {
         cx.theme().danger
     } else if date == today {

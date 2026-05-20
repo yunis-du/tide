@@ -44,6 +44,20 @@ pub fn get_or_create_data_path() -> Result<PathBuf> {
     Ok(data_path)
 }
 
+pub fn get_or_create_notifications_path() -> Result<PathBuf> {
+    let home_dir = get_home_directory()?;
+    let data_dir = home_dir.join(".tide");
+    if !data_dir.exists() {
+        fs::create_dir_all(&data_dir)?;
+    }
+    let notifications_path = data_dir.join("notifications.json");
+
+    if !notifications_path.exists() {
+        std::fs::write(&notifications_path, "")?;
+    }
+    Ok(notifications_path)
+}
+
 pub fn get_home_directory() -> Result<PathBuf> {
     let user_dirs = UserDirs::new().ok_or(anyhow!("could not get user directory"))?;
     Ok(user_dirs.home_dir().to_path_buf())

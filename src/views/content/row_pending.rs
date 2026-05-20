@@ -1,4 +1,3 @@
-use chrono::NaiveDate;
 use gpui::{AnyElement, Context, ElementId, IntoElement, Styled, div, prelude::*, px};
 use gpui_component::{
     ActiveTheme, InteractiveElementExt, Sizable,
@@ -12,7 +11,8 @@ use gpui_component::{
 use crate::{
     assets::CustomIconName,
     components::{DateTag, RadioButton, TaskForm},
-    state::{Task, TideStore, tide::update_status, update_data_and_save},
+    helpers::{due_time_label, i18n_content},
+    state::{DueDate, Task, TideStore, tide::update_status, update_data_and_save},
 };
 
 use super::{
@@ -25,15 +25,19 @@ impl TaskView {
         div()
             .pl(px(20.))
             .child(
-                TaskForm::new(self.title_input.clone(), self.details_input.clone())
-                    .pending_due_date(self.pending_due_date)
-                    .calendar_state(self.calendar_state.clone())
-                    .on_set_due_date(cx.listener(|this, date: &Option<NaiveDate>, window, cx| {
-                        this.set_pending_due_date(*date, window, cx);
-                    }))
-                    .on_mouse_down_out(cx.listener(|this, _, window, cx| {
-                        Self::close_form(this, window, cx);
-                    })),
+                TaskForm::new(
+                    self.title_input.clone(),
+                    self.details_input.clone(),
+                    self.time_input.clone(),
+                )
+                .pending_due_date(self.pending_due_date)
+                .calendar_state(self.calendar_state.clone())
+                .on_set_due_date(cx.listener(|this, date: &Option<DueDate>, window, cx| {
+                    this.set_pending_due_date(*date, window, cx);
+                }))
+                .on_mouse_down_out(cx.listener(|this, _, window, cx| {
+                    Self::close_form(this, window, cx);
+                })),
             )
             .into_any_element()
     }
@@ -71,15 +75,19 @@ impl TaskView {
 
         let task_row = if is_editing {
             root.child(
-                TaskForm::new(self.title_input.clone(), self.details_input.clone())
-                    .pending_due_date(self.pending_due_date)
-                    .calendar_state(self.calendar_state.clone())
-                    .on_set_due_date(cx.listener(|this, date: &Option<NaiveDate>, window, cx| {
-                        this.set_pending_due_date(*date, window, cx);
-                    }))
-                    .on_mouse_down_out(cx.listener(|this, _, window, cx| {
-                        Self::close_form(this, window, cx);
-                    })),
+                TaskForm::new(
+                    self.title_input.clone(),
+                    self.details_input.clone(),
+                    self.time_input.clone(),
+                )
+                .pending_due_date(self.pending_due_date)
+                .calendar_state(self.calendar_state.clone())
+                .on_set_due_date(cx.listener(|this, date: &Option<DueDate>, window, cx| {
+                    this.set_pending_due_date(*date, window, cx);
+                }))
+                .on_mouse_down_out(cx.listener(|this, _, window, cx| {
+                    Self::close_form(this, window, cx);
+                })),
             )
         } else {
             let drag_payload = DragTask {
@@ -242,12 +250,24 @@ impl TaskView {
                                                 cx,
                                                 |state, cx| {
                                                     state.set_date(
-                                                        Date::Single(Some(date)),
+                                                        Date::Single(Some(date.date)),
                                                         window,
                                                         cx,
                                                     );
                                                 },
                                             );
+                                            this.due_picker_time_input.update(cx, |state, cx| {
+                                                state.set_placeholder(
+                                                    i18n_content(cx, "due_time_placeholder"),
+                                                    window,
+                                                    cx,
+                                                );
+                                                let value = date
+                                                    .time
+                                                    .map(due_time_label)
+                                                    .unwrap_or_default();
+                                                state.set_value(value, window, cx);
+                                            });
                                             cx.notify();
                                         }))
                                         .child(DateTag::new(date))
@@ -534,7 +554,17 @@ impl TaskView {
                                     cx.stop_propagation();
                                     this.due_picker_for = Some(sid_picker.clone());
                                     this.due_picker_calendar_state.update(cx, |state, cx| {
-                                        state.set_date(Date::Single(Some(date)), window, cx);
+                                        state.set_date(Date::Single(Some(date.date)), window, cx);
+                                    });
+                                    this.due_picker_time_input.update(cx, |state, cx| {
+                                        state.set_placeholder(
+                                            i18n_content(cx, "due_time_placeholder"),
+                                            window,
+                                            cx,
+                                        );
+                                        let value =
+                                            date.time.map(due_time_label).unwrap_or_default();
+                                        state.set_value(value, window, cx);
                                     });
                                     cx.notify();
                                 }))

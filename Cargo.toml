@@ -20,6 +20,7 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 locale_config = "0.3.0"
 png = "0.18"
+notify-rust = "4"
 rfd = "0.17"
 rust-embed = "8.11"
 rust-i18n = "4"

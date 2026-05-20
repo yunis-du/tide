@@ -308,7 +308,11 @@ mod platform {
         let data = cx.global::<TideDataStore>().read(cx);
         data.tasks
             .iter()
-            .filter(|t| t.parent_id.is_none() && !t.is_completed && t.due_date == Some(today))
+            .filter(|t| {
+                t.parent_id.is_none()
+                    && !t.is_completed
+                    && t.due_date.is_some_and(|due| due.date == today)
+            })
             .count()
     }
 

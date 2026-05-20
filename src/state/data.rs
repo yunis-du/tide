@@ -63,11 +63,17 @@ pub struct Task {
     pub id: String,
     pub group_id: String,
     pub title: String,
+    #[serde(default)]
     pub details: Option<String>,
+    #[serde(default)]
     pub due_date: Option<DueDate>,
+    #[serde(default)]
     pub is_completed: bool,
+    #[serde(default)]
     pub completed_at: Option<NaiveDate>,
+    #[serde(default)]
     pub is_starred: bool,
+    #[serde(default)]
     pub parent_id: Option<String>,
 }
 
@@ -121,8 +127,11 @@ pub enum SidebarSelection {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TideData {
+    #[serde(default)]
     pub task_groups: Vec<TaskGroup>,
+    #[serde(default)]
     pub tasks: Vec<Task>,
+    #[serde(default)]
     pub sidebar_selection: SidebarSelection,
 }
 
@@ -391,4 +400,53 @@ where
         cx.update(|cx| cx.refresh_windows());
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loads_tasks_saved_before_due_time_was_added() {
+        let value = r#"
+        {
+          "task_groups": [
+            { "id": "my-group", "name": "My Group" }
+          ],
+          "tasks": [
+            {
+              "id": "task-1",
+              "group_id": "my-group",
+              "title": "Old dated task",
+              "due_date": "2026-05-20",
+              "is_completed": false,
+              "is_starred": true
+            },
+            {
+              "id": "task-2",
+              "group_id": "my-group",
+              "title": "Older minimal task"
+            }
+          ],
+          "sidebar_selection": "AllTasks"
+        }
+        "#;
+
+        let data: TideData = serde_json::from_str(value).expect("old data should load");
+
+        assert_eq!(data.tasks.len(), 2);
+        assert_eq!(
+            data.tasks[0].due_date,
+            Some(DueDate::new(
+                NaiveDate::from_ymd_opt(2026, 5, 20).unwrap(),
+                None
+            ))
+        );
+        assert_eq!(data.tasks[1].details, None);
+        assert_eq!(data.tasks[1].due_date, None);
+        assert!(!data.tasks[1].is_completed);
+        assert_eq!(data.tasks[1].completed_at, None);
+        assert!(!data.tasks[1].is_starred);
+        assert_eq!(data.tasks[1].parent_id, None);
+    }
 }

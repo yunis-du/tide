@@ -93,6 +93,7 @@ impl TaskView {
             let drag_payload = DragTask {
                 id: task.id.clone(),
                 title: task.title.clone(),
+                has_subtasks: !subtasks.is_empty(),
             };
             let drop_target_id = task.id.clone();
             let drop_target_id_sub = task.id.clone();
@@ -357,38 +358,61 @@ impl TaskView {
         }
 
         let mut row = task_row.children(sub_els);
-        if has_pending_sub {
-            let parent_id_for_end = task.id.clone();
-            let end_accent = cx.theme().info_active;
-            let sub_end_drop = div()
-                .id(ElementId::Name(format!("sub-drop-end-{}", task.id).into()))
-                .w_full()
-                .pl_8()
-                .min_h(px(12.))
-                .drag_over::<DragSubTask>(move |this, drag: &DragSubTask, _, _| {
-                    if drag.parent_id == parent_id_for_end {
-                        this.border_t_2().border_color(end_accent)
-                    } else {
-                        this
-                    }
-                })
-                .on_drop(cx.listener({
-                    let pid = task.id.clone();
-                    move |this, drag: &DragSubTask, _, cx| {
-                        this.dragging_subtask_id = None;
-                        if drag.parent_id != pid {
-                            cx.notify();
-                            return;
-                        }
-                        let from_id = drag.id.clone();
-                        update_data_and_save(cx, "reorder_subtask", move |data, _| {
-                            data.reorder_subtask_before(&from_id, "");
-                        });
+        let parent_id_for_sub_end = task.id.clone();
+        let parent_id_for_task_end = task.id.clone();
+        let end_accent = cx.theme().info_active;
+        let show_sub_end_drop = has_pending_sub || self.dragging_task_id.is_some();
+        let sub_end_drop = div()
+            .id(ElementId::Name(format!("sub-drop-end-{}", task.id).into()))
+            .w_full()
+            .when(self.dragging_task_id.is_some(), |this| this.ml_8().mr_3())
+            .min_h(if show_sub_end_drop { px(16.) } else { px(0.) })
+            .drag_over::<DragSubTask>(move |this, drag: &DragSubTask, _, _| {
+                if drag.parent_id == parent_id_for_sub_end {
+                    this.border_t_2().border_color(end_accent)
+                } else {
+                    this
+                }
+            })
+            .drag_over::<DragTask>(move |this, drag: &DragTask, _, _| {
+                if !drag.has_subtasks && drag.id != parent_id_for_task_end {
+                    this.border_t_2().border_color(end_accent)
+                } else {
+                    this
+                }
+            })
+            .on_drop(cx.listener({
+                let pid = task.id.clone();
+                move |this, drag: &DragSubTask, _, cx| {
+                    this.dragging_subtask_id = None;
+                    if drag.parent_id != pid {
                         cx.notify();
+                        return;
                     }
-                }));
-            row = row.child(sub_end_drop);
-        }
+                    let from_id = drag.id.clone();
+                    update_data_and_save(cx, "reorder_subtask", move |data, _| {
+                        data.reorder_subtask_before(&from_id, "");
+                    });
+                    cx.notify();
+                }
+            }))
+            .on_drop(cx.listener({
+                let pid = task.id.clone();
+                move |this, drag: &DragTask, _, cx| {
+                    this.dragging_task_id = None;
+                    if drag.has_subtasks || drag.id == pid {
+                        cx.notify();
+                        return;
+                    }
+                    let from_id = drag.id.clone();
+                    let parent_id = pid.clone();
+                    update_data_and_save(cx, "demote_task", move |data, _| {
+                        data.demote_task_to_subtask(&from_id, &parent_id, "");
+                    });
+                    cx.notify();
+                }
+            }));
+        row = row.child(sub_end_drop);
         if is_adding_sub_here {
             row = row.child(self.render_subtask_form(cx));
         }
@@ -406,7 +430,8 @@ impl TaskView {
         let sid_selected = sub.id.clone();
         let sid_hover = sub.id.clone();
         let sid_star = sub.id.clone();
-        let parent_for_drop = parent_id.to_string();
+        let parent_for_subtask_drop = parent_id.to_string();
+        let parent_for_task_drop = parent_id.to_string();
         let parent_for_click = parent_id.to_string();
         let sub_for_edit = sub.clone();
         let sub_title = sub.title.clone();
@@ -428,7 +453,9 @@ impl TaskView {
             title: sub.title.clone(),
         };
         let drop_target_id = sub.id.clone();
+        let task_drop_target_id = sub.id.clone();
         let drop_parent_id = parent_id.to_string();
+        let task_drop_parent_id = parent_id.to_string();
         let drag_start_id = sub.id.clone();
         let weak = cx.entity().downgrade();
         let weak_menu = weak.clone();
@@ -465,9 +492,21 @@ impl TaskView {
                     this
                 }
             })
+            .drag_over::<DragTask>(move |this, drag: &DragTask, _, _| {
+                if !drag.has_subtasks && drag.id != task_drop_parent_id {
+                    this.ml_8()
+                        .mr_3()
+                        .pl_0()
+                        .rounded_none()
+                        .border_t_2()
+                        .border_color(accent)
+                } else {
+                    this
+                }
+            })
             .on_drop(cx.listener(move |this, drag: &DragSubTask, _, cx| {
                 this.dragging_subtask_id = None;
-                if drag.parent_id != parent_for_drop {
+                if drag.parent_id != parent_for_subtask_drop {
                     cx.notify();
                     return;
                 }
@@ -475,6 +514,20 @@ impl TaskView {
                 let before_id = drop_target_id.clone();
                 update_data_and_save(cx, "reorder_subtask", move |data, _| {
                     data.reorder_subtask_before(&from_id, &before_id);
+                });
+                cx.notify();
+            }))
+            .on_drop(cx.listener(move |this, drag: &DragTask, _, cx| {
+                this.dragging_task_id = None;
+                if drag.has_subtasks || drag.id == parent_for_task_drop {
+                    cx.notify();
+                    return;
+                }
+                let from_id = drag.id.clone();
+                let parent_id = parent_for_task_drop.clone();
+                let before_id = task_drop_target_id.clone();
+                update_data_and_save(cx, "demote_task", move |data, _| {
+                    data.demote_task_to_subtask(&from_id, &parent_id, &before_id);
                 });
                 cx.notify();
             }))

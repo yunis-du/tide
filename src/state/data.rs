@@ -363,6 +363,59 @@ impl TideData {
         }
         self.reorder_task_before(subtask_id, before_id);
     }
+
+    pub fn demote_task_to_subtask(&mut self, task_id: &str, parent_id: &str, before_id: &str) {
+        if task_id == parent_id
+            || self
+                .tasks
+                .iter()
+                .any(|task| task.parent_id.as_deref() == Some(task_id))
+        {
+            return;
+        }
+
+        let Some(parent) = self
+            .tasks
+            .iter()
+            .find(|task| task.id == parent_id && task.parent_id.is_none())
+        else {
+            return;
+        };
+        let parent_group_id = parent.group_id.clone();
+
+        let Some(from_pos) = self
+            .tasks
+            .iter()
+            .position(|task| task.id == task_id && task.parent_id.is_none())
+        else {
+            return;
+        };
+        let mut task = self.tasks.remove(from_pos);
+        task.group_id = parent_group_id;
+        task.parent_id = Some(parent_id.to_string());
+
+        let insert_pos = self
+            .tasks
+            .iter()
+            .position(|task| task.id == before_id && task.parent_id.as_deref() == Some(parent_id))
+            .or_else(|| {
+                self.tasks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, task)| task.parent_id.as_deref() == Some(parent_id))
+                    .map(|(index, _)| index + 1)
+                    .last()
+            })
+            .or_else(|| {
+                self.tasks
+                    .iter()
+                    .position(|task| task.id == parent_id)
+                    .map(|index| index + 1)
+            })
+            .unwrap_or(self.tasks.len());
+
+        self.tasks.insert(insert_pos, task);
+    }
 }
 
 pub fn save_data(data: &TideData) -> Result<()> {
@@ -537,6 +590,65 @@ mod tests {
                 .map(|group| group.id.as_str())
                 .collect::<Vec<_>>(),
             vec!["newest", "middle", "oldest"]
+        );
+    }
+
+    #[test]
+    fn demotes_top_level_task_back_to_subtask() {
+        let mut parent = Task::new("group", "Parent");
+        parent.id = "parent".to_string();
+        let mut sibling = Task::new("group", "Sibling");
+        sibling.id = "sibling".to_string();
+        sibling.parent_id = Some(parent.id.clone());
+        let mut promoted = Task::new("group", "Promoted");
+        promoted.id = "promoted".to_string();
+
+        let mut data = TideData {
+            tasks: vec![parent, sibling, promoted],
+            ..Default::default()
+        };
+
+        data.demote_task_to_subtask("promoted", "parent", "sibling");
+
+        let promoted = data
+            .tasks
+            .iter()
+            .find(|task| task.id == "promoted")
+            .unwrap();
+        assert_eq!(promoted.parent_id.as_deref(), Some("parent"));
+        assert_eq!(
+            data.subtasks_of("parent")
+                .iter()
+                .map(|task| task.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["promoted", "sibling"]
+        );
+    }
+
+    #[test]
+    fn does_not_demote_task_that_has_subtasks() {
+        let mut parent = Task::new("group", "Parent");
+        parent.id = "parent".to_string();
+        let mut task = Task::new("group", "Task");
+        task.id = "task".to_string();
+        let mut child = Task::new("group", "Child");
+        child.id = "child".to_string();
+        child.parent_id = Some(task.id.clone());
+
+        let mut data = TideData {
+            tasks: vec![parent, task, child],
+            ..Default::default()
+        };
+
+        data.demote_task_to_subtask("task", "parent", "");
+
+        assert_eq!(
+            data.tasks
+                .iter()
+                .find(|task| task.id == "task")
+                .unwrap()
+                .parent_id,
+            None
         );
     }
 }

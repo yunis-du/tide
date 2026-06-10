@@ -5,6 +5,7 @@ use gpui_component::{ActiveTheme, h_flex};
 pub(super) struct DragTask {
     pub(super) id: String,
     pub(super) title: String,
+    pub(super) has_subtasks: bool,
 }
 
 impl Render for DragTask {

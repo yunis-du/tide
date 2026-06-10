@@ -5,7 +5,7 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, Icon, IconName, Sizable, WindowExt,
     button::{Button, ButtonVariant, ButtonVariants},
-    dialog::DialogButtonProps,
+    dialog::{DialogAction, DialogButtonProps, DialogClose, DialogFooter},
     h_flex,
     input::{Escape, Input, InputEvent, InputState},
     menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
@@ -277,6 +277,8 @@ impl SidebarView {
                         let dialog_height = px(160.);
                         let margin_top =
                             ((window.viewport_size().height - dialog_height) / 2.).max(px(0.));
+                        let confirm_delete = i18n_sidebar(cx, "confirm_delete");
+                        let cancel = i18n_sidebar(cx, "cancel");
                         dialog
                             .title(i18n_sidebar(cx, "delete_group_title"))
                             .child(
@@ -289,10 +291,25 @@ impl SidebarView {
                             .margin_top(margin_top)
                             .button_props(
                                 DialogButtonProps::default()
-                                    .ok_text(i18n_sidebar(cx, "confirm_delete"))
-                                    .cancel_text(i18n_sidebar(cx, "cancel"))
+                                    .ok_text(confirm_delete.clone())
+                                    .cancel_text(cancel.clone())
                                     .show_cancel(true)
                                     .ok_variant(ButtonVariant::Danger),
+                            )
+                            .footer(
+                                DialogFooter::new()
+                                    .child(
+                                        DialogClose::new().child(
+                                            Button::new("cancel-delete-group").label(cancel),
+                                        ),
+                                    )
+                                    .child(
+                                        DialogAction::new().child(
+                                            Button::new("confirm-delete-group")
+                                                .label(confirm_delete)
+                                                .with_variant(ButtonVariant::Danger),
+                                        ),
+                                    ),
                             )
                             .on_ok(move |_, _, cx| {
                                 let id = id_for_del.clone();

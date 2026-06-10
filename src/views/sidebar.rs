@@ -23,8 +23,43 @@ use crate::{
 
 use super::floating::open_pinned_group_window;
 
+#[derive(Clone)]
+struct DragGroup {
+    id: String,
+    name: String,
+}
+
+impl Render for DragGroup {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        h_flex()
+            .w(px(208.))
+            .px_2()
+            .py_1p5()
+            .gap_2()
+            .items_center()
+            .bg(cx.theme().background)
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded_lg()
+            .shadow_md()
+            .child(
+                Icon::new(IconName::CircleCheck)
+                    .size_4()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .text_sm()
+                    .text_color(cx.theme().foreground)
+                    .child(self.name.clone()),
+            )
+    }
+}
+
 pub struct SidebarView {
     hovered_group_id: Option<String>,
+    dragging_group_id: Option<String>,
     group_input: Entity<InputState>,
     new_group: Option<TaskGroup>,
 
@@ -57,6 +92,7 @@ impl SidebarView {
 
         Self {
             hovered_group_id: None,
+            dragging_group_id: None,
             group_input,
             new_group: None,
             _subs: subs,
@@ -408,6 +444,7 @@ impl SidebarView {
     fn render_group_list(
         cx: &mut Context<Self>,
         hovered_group: Option<String>,
+        dragging_group: Option<String>,
         group_input: Entity<InputState>,
         new_group: Option<TaskGroup>,
     ) -> AnyElement {
@@ -426,10 +463,12 @@ impl SidebarView {
             groups.push(new_group.clone().unwrap());
         }
         groups.reverse();
+        groups.retain(|group| dragging_group.as_deref() != Some(group.id.as_str()));
 
         let active_color = interactive_accent(cx.theme());
         let fg = cx.theme().foreground;
         let muted_fg = cx.theme().muted_foreground;
+        let drop_accent = cx.theme().info_active;
 
         let mut group_els: Vec<AnyElement> = Vec::new();
         for group in &groups {
@@ -451,6 +490,13 @@ impl SidebarView {
             let group_id_for_menu = group.id.clone();
             let group_name_for_menu = group.name.clone();
             let group_input_for_menu = group_input.clone();
+            let drag_payload = DragGroup {
+                id: group.id.clone(),
+                name: group.name.clone(),
+            };
+            let drag_start_id = group.id.clone();
+            let drop_target_id = group.id.clone();
+            let weak = cx.entity().downgrade();
 
             let group_row = h_flex()
                 .id(ElementId::Name(format!("group-{}", group.id).into()))
@@ -462,6 +508,30 @@ impl SidebarView {
                 .cursor_pointer()
                 .when_some(bg_color, |t, c| t.bg(c))
                 .hover(|s| s.bg(rgba(0x00000010)))
+                .when(!is_editing, |t| {
+                    t.on_drag(drag_payload, move |drag, _, _, cx| {
+                        cx.stop_propagation();
+                        let id = drag_start_id.clone();
+                        weak.update(cx, |this, cx| {
+                            this.dragging_group_id = Some(id);
+                            cx.notify();
+                        })
+                        .ok();
+                        cx.new(|_| drag.clone())
+                    })
+                })
+                .drag_over::<DragGroup>(move |this, _, _, _| {
+                    this.rounded_none().border_t_2().border_color(drop_accent)
+                })
+                .on_drop(cx.listener(move |this, drag: &DragGroup, _, cx| {
+                    let from_id = drag.id.clone();
+                    let before_id = drop_target_id.clone();
+                    this.dragging_group_id = None;
+                    update_data_and_save(cx, "reorder_group", move |data, _| {
+                        data.reorder_task_group_before(&from_id, &before_id);
+                    });
+                    cx.notify();
+                }))
                 .on_hover(cx.listener(move |this, is_hov: &bool, _, cx| {
                     let new_val = if *is_hov {
                         Some(group_id_hover.clone())
@@ -531,16 +601,37 @@ impl SidebarView {
             group_els.push(v_flex().w_full().child(group_row).into_any_element());
         }
 
+        let end_drop_zone = div()
+            .id("group-drop-end")
+            .w_full()
+            .min_h(px(32.))
+            .drag_over::<DragGroup>(move |this, _, _, _| {
+                this.border_t_2().border_color(drop_accent)
+            })
+            .on_drop(cx.listener(|this, drag: &DragGroup, _, cx| {
+                let from_id = drag.id.clone();
+                this.dragging_group_id = None;
+                update_data_and_save(cx, "reorder_group", move |data, _| {
+                    data.reorder_task_group_before(&from_id, "");
+                });
+                cx.notify();
+            }));
+
         v_flex()
             .px_2()
             .gap_1()
             .children(group_els)
+            .child(end_drop_zone)
             .into_any_element()
     }
 }
 
 impl Render for SidebarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !cx.has_active_drag() && self.dragging_group_id.is_some() {
+            self.dragging_group_id = None;
+        }
+
         let selection = {
             let data = cx.global::<TideDataStore>().read(cx);
             data.sidebar_selection().clone()
@@ -557,6 +648,7 @@ impl Render for SidebarView {
         let star_label = i18n_sidebar(cx, "starred");
 
         let hovered_group = self.hovered_group_id.clone();
+        let dragging_group = self.dragging_group_id.clone();
         let group_input = self.group_input.clone();
         let is_create_group = cx.global::<TideStore>().read(cx).status().create_group();
 
@@ -611,6 +703,7 @@ impl Render for SidebarView {
                         .child(Self::render_group_list(
                             cx,
                             hovered_group,
+                            dragging_group,
                             group_input,
                             self.new_group.clone(),
                         )),

@@ -154,6 +154,28 @@ impl TideData {
         }
     }
 
+    pub fn reorder_task_group_before(&mut self, from_id: &str, before_id: &str) {
+        if from_id == before_id || !self.task_groups.iter().any(|group| group.id == from_id) {
+            return;
+        }
+
+        // Groups are stored oldest-first but displayed newest-first.
+        self.task_groups.reverse();
+        let from_pos = self
+            .task_groups
+            .iter()
+            .position(|group| group.id == from_id)
+            .expect("group existence checked above");
+        let group = self.task_groups.remove(from_pos);
+        let to_pos = self
+            .task_groups
+            .iter()
+            .position(|group| group.id == before_id)
+            .unwrap_or(self.task_groups.len());
+        self.task_groups.insert(to_pos, group);
+        self.task_groups.reverse();
+    }
+
     pub fn remove_task_group(&mut self, id: &str) {
         self.task_groups.retain(|l| l.id != id);
         self.tasks.retain(|t| t.group_id != id);
@@ -484,5 +506,37 @@ mod tests {
 
         assert_eq!(data.tasks.len(), 1);
         assert_eq!(data.tasks[0].id, "other");
+    }
+
+    #[test]
+    fn reorders_task_groups_in_display_order() {
+        let group = |id: &str| TaskGroup {
+            id: id.to_string(),
+            name: id.to_string(),
+        };
+        let mut data = TideData {
+            task_groups: vec![group("oldest"), group("middle"), group("newest")],
+            ..Default::default()
+        };
+
+        data.reorder_task_group_before("oldest", "newest");
+        assert_eq!(
+            data.task_groups
+                .iter()
+                .rev()
+                .map(|group| group.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["oldest", "newest", "middle"]
+        );
+
+        data.reorder_task_group_before("oldest", "");
+        assert_eq!(
+            data.task_groups
+                .iter()
+                .rev()
+                .map(|group| group.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["newest", "middle", "oldest"]
+        );
     }
 }

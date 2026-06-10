@@ -16,7 +16,11 @@ use std::{
 use directories::ProjectDirs;
 use gpui::{AnyWindowHandle, App, Context, IntoElement, Render, Window, div, prelude::*, px};
 use gpui_component::{
-    ActiveTheme, WindowExt, dialog::DialogButtonProps, progress::Progress, v_flex,
+    ActiveTheme, WindowExt,
+    button::{Button, ButtonVariant, ButtonVariants},
+    dialog::{DialogAction, DialogButtonProps, DialogClose, DialogFooter},
+    progress::Progress,
+    v_flex,
 };
 use rust_i18n::t;
 use serde::Deserialize;
@@ -263,6 +267,20 @@ fn open_available_dialog(
                     .ok_text(download_label.clone())
                     .cancel_text(later_label.clone())
                     .show_cancel(true),
+            )
+            .footer(
+                DialogFooter::new()
+                    .child(
+                        DialogClose::new()
+                            .child(Button::new("later-update").label(later_label.clone())),
+                    )
+                    .child(
+                        DialogAction::new().child(
+                            Button::new("download-update")
+                                .label(download_label.clone())
+                                .with_variant(ButtonVariant::Primary),
+                        ),
+                    ),
             )
             .on_ok({
                 let download_url = download_url.clone();
@@ -577,6 +595,20 @@ fn open_ready_dialog(window: &mut Window, cx: &mut App, version: String, install
                     .cancel_text(later_label.clone())
                     .show_cancel(true),
             )
+            .footer(
+                DialogFooter::new()
+                    .child(
+                        DialogClose::new()
+                            .child(Button::new("install-later").label(later_label.clone())),
+                    )
+                    .child(
+                        DialogAction::new().child(
+                            Button::new("install-update")
+                                .label(install_label.clone())
+                                .with_variant(ButtonVariant::Primary),
+                        ),
+                    ),
+            )
             .on_ok(move |_, _, cx| {
                 match launch_installer(&installer_path) {
                     Ok(()) => cx.quit(),
@@ -610,6 +642,15 @@ fn open_info_dialog(window: &mut Window, cx: &mut App, title: String, desc: Stri
             .w(dialog_width)
             .margin_top(margin_top)
             .button_props(DialogButtonProps::default().ok_text(ok_label.clone()))
+            .footer(
+                DialogFooter::new().child(
+                    DialogAction::new().child(
+                        Button::new("close-update-info")
+                            .label(ok_label.clone())
+                            .with_variant(ButtonVariant::Primary),
+                    ),
+                ),
+            )
             .on_ok(|_, _, _| true)
     });
 }

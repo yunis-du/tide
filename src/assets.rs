@@ -48,6 +48,13 @@ pub enum CustomIconName {
     Check,
     Trash,
     Clock,
+    Refresh,
+    // AI
+    Anthropic,
+    Deepseek,
+    Gemini,
+    Ollama,
+    Openai,
 }
 
 impl CustomIconName {
@@ -59,6 +66,13 @@ impl CustomIconName {
             CustomIconName::Check => "icons/check.svg",
             CustomIconName::Trash => "icons/trash.svg",
             CustomIconName::Clock => "icons/clock.svg",
+            CustomIconName::Refresh => "icons/refresh.svg",
+            // AI
+            CustomIconName::Anthropic => "icons/ai/anthropic.svg",
+            CustomIconName::Deepseek => "icons/ai/deepseek.svg",
+            CustomIconName::Gemini => "icons/ai/googlegemini.svg",
+            CustomIconName::Ollama => "icons/ai/ollama.svg",
+            CustomIconName::Openai => "icons/ai/openai.svg",
         }
     }
 }

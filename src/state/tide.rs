@@ -12,6 +12,130 @@ const DARK_THEME_MODE: &str = "dark";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum AiProvider {
+    OpenAi,
+    OpenAiCompatible,
+    Claude,
+    Gemini,
+    DeepSeek,
+    Ollama,
+}
+
+impl AiProvider {
+    pub const ALL: [Self; 6] = [
+        Self::OpenAi,
+        Self::OpenAiCompatible,
+        Self::Claude,
+        Self::Gemini,
+        Self::DeepSeek,
+        Self::Ollama,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::OpenAi => "OpenAI",
+            Self::OpenAiCompatible => "OpenAI Compatible",
+            Self::Claude => "Claude",
+            Self::Gemini => "Gemini",
+            Self::DeepSeek => "DeepSeek",
+            Self::Ollama => "Ollama",
+        }
+    }
+
+    pub const fn default_endpoint(self) -> &'static str {
+        match self {
+            Self::OpenAi => "https://api.openai.com/v1",
+            Self::OpenAiCompatible => "",
+            Self::Claude => "https://api.anthropic.com",
+            Self::Gemini => "https://generativelanguage.googleapis.com",
+            Self::DeepSeek => "https://api.deepseek.com/v1",
+            Self::Ollama => "http://localhost:11434/v1",
+        }
+    }
+
+    pub const fn default_model(self) -> &'static str {
+        match self {
+            Self::OpenAi => "gpt-4.1-mini",
+            Self::OpenAiCompatible => "",
+            Self::Claude => "claude-sonnet-4-20250514",
+            Self::Gemini => "gemini-2.5-flash",
+            Self::DeepSeek => "deepseek-chat",
+            Self::Ollama => "llama3.1",
+        }
+    }
+
+    pub const fn requires_api_key(self) -> bool {
+        !matches!(self, Self::Ollama)
+    }
+
+    pub const fn supports_openai_api_mode(self) -> bool {
+        matches!(self, Self::OpenAi | Self::OpenAiCompatible)
+    }
+
+    pub const fn supports_model_listing(self) -> bool {
+        !matches!(self, Self::Gemini)
+    }
+}
+
+impl Default for AiProvider {
+    fn default() -> Self {
+        Self::OpenAi
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenAiApiMode {
+    ChatCompletions,
+    Responses,
+}
+
+impl Default for OpenAiApiMode {
+    fn default() -> Self {
+        Self::ChatCompletions
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiSettings {
+    #[serde(default)]
+    pub provider: AiProvider,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default = "default_ai_endpoint")]
+    pub endpoint: String,
+    #[serde(default = "default_ai_model")]
+    pub model: String,
+    #[serde(default)]
+    pub openai_api_mode: OpenAiApiMode,
+    #[serde(default = "default_true")]
+    pub thinking_enabled: bool,
+}
+
+fn default_ai_endpoint() -> String {
+    AiProvider::default().default_endpoint().to_string()
+}
+
+fn default_ai_model() -> String {
+    AiProvider::default().default_model().to_string()
+}
+
+impl Default for AiSettings {
+    fn default() -> Self {
+        let provider = AiProvider::default();
+        Self {
+            provider,
+            api_key: String::new(),
+            endpoint: provider.default_endpoint().to_string(),
+            model: provider.default_model().to_string(),
+            openai_api_mode: OpenAiApiMode::default(),
+            thinking_enabled: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CloseBehavior {
     HideToTray,
     Quit,
@@ -180,6 +304,8 @@ pub struct Tide {
     auto_check_updates: bool,
     #[serde(default)]
     notifications: NotificationSettings,
+    #[serde(default)]
+    ai: AiSettings,
     #[serde(skip)]
     status: TideStatus,
 }
@@ -225,6 +351,10 @@ impl Tide {
         &self.notifications
     }
 
+    pub fn ai(&self) -> &AiSettings {
+        &self.ai
+    }
+
     pub fn status(&self) -> &TideStatus {
         &self.status
     }
@@ -267,6 +397,10 @@ impl Tide {
 
     pub fn set_notifications_enabled(&mut self, enabled: bool) {
         self.notifications.enabled = enabled;
+    }
+
+    pub fn set_ai(&mut self, settings: AiSettings) {
+        self.ai = settings;
     }
 }
 

@@ -4,7 +4,8 @@
 use gpui::TitlebarOptions;
 use gpui::{
     App, AppContext, Bounds, Context, Entity, InteractiveElement, IntoElement, ParentElement,
-    Render, Styled, Window, WindowAppearance, WindowBounds, WindowHandle, WindowOptions, px, size,
+    Render, Styled, Window, WindowAppearance, WindowBounds, WindowHandle, WindowOptions,
+    prelude::FluentBuilder, px, size,
 };
 use gpui_component::{ActiveTheme, Root, Theme, ThemeMode, h_flex, v_flex};
 
@@ -25,6 +26,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
+mod ai;
 mod assets;
 mod autostart;
 mod components;
@@ -174,6 +176,8 @@ impl Tide {
 impl Render for Tide {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let dialog_layer = Root::render_dialog_layer(_window, cx);
+        let settings_open = cx.global::<TideDataStore>().read(cx).sidebar_selection()
+            == &SidebarSelection::Settings;
 
         v_flex()
             .id(PKG_NAME)
@@ -184,7 +188,7 @@ impl Render for Tide {
                 h_flex()
                     .flex_1()
                     .min_h_0()
-                    .child(self.sidebar.clone())
+                    .when(!settings_open, |this| this.child(self.sidebar.clone()))
                     .child(self.content.clone()),
             )
             .children(dialog_layer)

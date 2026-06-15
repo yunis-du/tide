@@ -134,6 +134,8 @@ pub struct TideData {
     pub tasks: Vec<Task>,
     #[serde(default)]
     pub sidebar_selection: SidebarSelection,
+    #[serde(skip)]
+    settings_return_selection: Option<SidebarSelection>,
 }
 
 impl TideData {
@@ -189,7 +191,19 @@ impl TideData {
     }
 
     pub fn set_sidebar_selection(&mut self, selection: SidebarSelection) {
+        if selection == SidebarSelection::Settings
+            && self.sidebar_selection != SidebarSelection::Settings
+        {
+            self.settings_return_selection = Some(self.sidebar_selection.clone());
+        }
         self.sidebar_selection = selection;
+    }
+
+    pub fn return_from_settings(&mut self) {
+        self.sidebar_selection = self
+            .settings_return_selection
+            .take()
+            .unwrap_or(SidebarSelection::AllTasks);
     }
 
     pub fn group_id_for_creation(&self) -> Option<String> {
@@ -650,5 +664,17 @@ mod tests {
                 .parent_id,
             None
         );
+    }
+
+    #[test]
+    fn returns_to_previous_view_after_settings() {
+        let mut data = TideData::default();
+        let group = SidebarSelection::Group("work".to_string());
+        data.set_sidebar_selection(group.clone());
+        data.set_sidebar_selection(SidebarSelection::Settings);
+
+        data.return_from_settings();
+
+        assert_eq!(data.sidebar_selection(), &group);
     }
 }

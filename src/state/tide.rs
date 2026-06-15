@@ -110,6 +110,8 @@ pub struct AiSettings {
     pub openai_api_mode: OpenAiApiMode,
     #[serde(default = "default_true")]
     pub thinking_enabled: bool,
+    #[serde(default)]
+    pub custom_prompt: String,
 }
 
 fn default_ai_endpoint() -> String {
@@ -130,6 +132,7 @@ impl Default for AiSettings {
             model: provider.default_model().to_string(),
             openai_api_mode: OpenAiApiMode::default(),
             thinking_enabled: true,
+            custom_prompt: String::new(),
         }
     }
 }

@@ -27,6 +27,11 @@ pub fn i18n_titlebar(cx: &App, key: &str) -> String {
     t!(format!("titlebar.{key}"), locale = l).into()
 }
 
+pub fn i18n_ai(cx: &App, key: &str) -> String {
+    let l = locale(cx);
+    t!(format!("ai.{key}"), locale = l).into()
+}
+
 pub fn i18n_sidebar(cx: &App, key: &str) -> String {
     let l = locale(cx);
     t!(format!("sidebar.{key}"), locale = l).into()

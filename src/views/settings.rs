@@ -1,13 +1,13 @@
 use gpui::{
     Anchor, AnyElement, App, AppContext, ClickEvent, Context, Entity, FontWeight, Hsla,
     InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled,
-    Window, WindowAppearance, div, prelude::FluentBuilder, px, rgba,
+    Subscription, Window, WindowAppearance, div, prelude::FluentBuilder, px, rgba,
 };
 use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, Side, Sizable, Theme, ThemeMode,
     button::{Button, ButtonVariants},
     h_flex,
-    input::{Input, InputState},
+    input::{Input, InputEvent, InputState},
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
     scroll::ScrollableElement,
     switch::Switch,
@@ -17,7 +17,7 @@ use gpui_component::{
 use tracing::error;
 
 use crate::{
-    ai::fetch_models,
+    ai::{fetch_models, test_connection},
     assets::CustomIconName,
     autostart,
     helpers::{active_item_bg, i18n_settings, interactive_accent},
@@ -88,12 +88,16 @@ pub struct SettingsView {
     ai_api_key: Entity<InputState>,
     ai_endpoint: Entity<InputState>,
     ai_model: Entity<InputState>,
+    ai_custom_prompt: Entity<InputState>,
     ai_openai_api_mode: OpenAiApiMode,
     ai_thinking_enabled: bool,
+    saved_ai_settings: AiSettings,
     ai_validation: Option<(AiValidationStatus, String)>,
+    ai_test_loading: bool,
     ai_models: Vec<String>,
     ai_models_loading: bool,
     ai_models_status: Option<(AiValidationStatus, String)>,
+    _ai_input_subscriptions: Vec<Subscription>,
 }
 
 impl SettingsView {
@@ -125,6 +129,26 @@ impl SettingsView {
                 .default_value(ai.model.clone())
                 .placeholder("model-name")
         });
+        let ai_custom_prompt = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .default_value(ai.custom_prompt.clone())
+                .placeholder(i18n_settings(cx, "ai_custom_prompt_placeholder"))
+        });
+
+        let mut ai_input_subscriptions = Vec::new();
+        for input in [&ai_api_key, &ai_endpoint, &ai_model, &ai_custom_prompt] {
+            ai_input_subscriptions.push(cx.subscribe_in(
+                input,
+                window,
+                |this: &mut Self, _, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.ai_validation = None;
+                        cx.notify();
+                    }
+                },
+            ));
+        }
 
         Self {
             section: SettingsSection::General,
@@ -132,13 +156,25 @@ impl SettingsView {
             ai_api_key,
             ai_endpoint,
             ai_model,
+            ai_custom_prompt,
             ai_openai_api_mode: ai.openai_api_mode,
             ai_thinking_enabled: ai.thinking_enabled,
+            saved_ai_settings: ai,
             ai_validation: None,
+            ai_test_loading: false,
             ai_models: Vec::new(),
             ai_models_loading: false,
             ai_models_status: None,
+            _ai_input_subscriptions: ai_input_subscriptions,
         }
+    }
+
+    fn save_ai_settings(&mut self, cx: &App) {
+        let settings = self.ai_settings(cx);
+        self.saved_ai_settings = settings.clone();
+        update_and_save(cx, "set_ai_settings", move |tide, _| {
+            tide.set_ai(settings.clone());
+        });
     }
 
     fn set_ai_provider(
@@ -250,10 +286,11 @@ impl SettingsView {
             model: self.ai_model.read(cx).value().trim().to_string(),
             openai_api_mode: self.ai_openai_api_mode,
             thinking_enabled: self.ai_thinking_enabled,
+            custom_prompt: self.ai_custom_prompt.read(cx).value().trim().to_string(),
         }
     }
 
-    fn validate_ai_settings(settings: &AiSettings, cx: &App) -> Result<String, String> {
+    fn validate_ai_settings(settings: &AiSettings, cx: &App) -> Result<(), String> {
         if settings.provider.requires_api_key() && settings.api_key.is_empty() {
             return Err(i18n_settings(cx, "ai_api_key_required"));
         }
@@ -268,7 +305,88 @@ impl SettingsView {
             return Err(i18n_settings(cx, "ai_model_required"));
         }
 
-        Ok(i18n_settings(cx, "ai_validation_success"))
+        Ok(())
+    }
+
+    fn test_ai_settings(&mut self, cx: &mut Context<Self>) {
+        if self.ai_test_loading {
+            return;
+        }
+
+        let settings = self.ai_settings(cx);
+        if let Err(message) = Self::validate_ai_settings(&settings, cx) {
+            self.ai_validation = Some((AiValidationStatus::Error, message));
+            cx.notify();
+            return;
+        }
+
+        self.ai_test_loading = true;
+        self.ai_validation = Some((
+            AiValidationStatus::Success,
+            i18n_settings(cx, "ai_test_testing"),
+        ));
+        cx.notify();
+
+        let weak = cx.entity().downgrade();
+        cx.spawn(async move |_, cx| {
+            let result = cx
+                .background_spawn(async move { test_connection(&settings) })
+                .await;
+            let _ = weak.update(cx, |this, cx| {
+                this.ai_test_loading = false;
+                this.ai_validation = Some(match result {
+                    Ok(()) => (
+                        AiValidationStatus::Success,
+                        i18n_settings(cx, "ai_test_success"),
+                    ),
+                    Err(error) => {
+                        error!(error = %error, "AI connection test failed");
+                        (
+                            AiValidationStatus::Error,
+                            Self::friendly_ai_error(&error, cx),
+                        )
+                    }
+                });
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn friendly_ai_error(error: &anyhow::Error, cx: &App) -> String {
+        let message = format!("{error:#}").to_lowercase();
+        let key = if message.contains("401")
+            || message.contains("unauthorized")
+            || message.contains("incorrect api key")
+            || message.contains("invalid_api_key")
+        {
+            "ai_error_auth"
+        } else if message.contains("403") || message.contains("forbidden") {
+            "ai_error_permission"
+        } else if message.contains("404") || message.contains("not found") {
+            "ai_error_not_found"
+        } else if message.contains("429")
+            || message.contains("rate limit")
+            || message.contains("too many requests")
+        {
+            "ai_error_rate_limit"
+        } else if message.contains("timed out") || message.contains("timeout") {
+            "ai_error_timeout"
+        } else if message.contains("connect")
+            || message.contains("dns")
+            || message.contains("resolve host")
+        {
+            "ai_error_network"
+        } else if message.contains("tool")
+            || message.contains("structured")
+            || message.contains("no data")
+            || message.contains("no valid tasks")
+        {
+            "ai_error_unsupported"
+        } else {
+            "ai_error_unknown"
+        };
+        i18n_settings(cx, key)
     }
 
     fn render_row(
@@ -408,6 +526,7 @@ impl SettingsView {
     fn render_ai_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let weak = cx.entity().downgrade();
         let model_weak = weak.clone();
+        let has_unsaved_changes = self.ai_settings(cx) != self.saved_ai_settings;
         let provider = self.ai_provider;
         let supports_model_listing = provider.supports_model_listing();
         let api_key_optional = !provider.requires_api_key();
@@ -443,17 +562,34 @@ impl SettingsView {
         let browse_models_button = Button::new("ai-browse-models")
             .label(i18n_settings(cx, "ai_browse_models"))
             .dropdown_caret(true)
+            .flex_none()
             .disabled(self.ai_models_loading)
             .dropdown_menu(move |menu: PopupMenu, _, _| {
                 if no_models {
                     return menu.item(PopupMenuItem::new(no_models_label.clone()).disabled(true));
                 }
 
-                models.iter().fold(menu, |menu, model| {
+                models.iter().fold(menu.max_w(px(420.)), |menu, model| {
                     let weak = model_weak.clone();
                     let model = model.clone();
+                    let model_label = model.clone();
                     menu.item(
-                        PopupMenuItem::new(model.clone()).on_click(move |_, window, cx| {
+                        PopupMenuItem::element(move |_, _| {
+                            let tooltip_label = model_label.clone();
+                            div()
+                                .id(model_label.clone())
+                                .flex_1()
+                                .min_w_0()
+                                .max_w(px(388.))
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .whitespace_nowrap()
+                                .child(model_label.clone())
+                                .tooltip(move |window, cx| {
+                                    Tooltip::new(tooltip_label.clone()).build(window, cx)
+                                })
+                        })
+                        .on_click(move |_, window, cx| {
                             let _ = weak.update(cx, |this, cx| {
                                 this.ai_model.update(cx, |input, cx| {
                                     input.set_value(&model, window, cx);
@@ -469,6 +605,7 @@ impl SettingsView {
 
         let refresh_models_button = Button::new("ai-refresh-models")
             .icon(CustomIconName::Refresh)
+            .flex_none()
             .loading(self.ai_models_loading)
             .disabled(!supports_model_listing)
             .on_click(cx.listener(|this, _, _, cx| {
@@ -489,26 +626,25 @@ impl SettingsView {
 
         let test_button = Button::new("test-ai-settings")
             .label(i18n_settings(cx, "ai_test"))
+            .loading(self.ai_test_loading)
+            .disabled(self.ai_test_loading)
             .on_click(cx.listener(|this, _, _, cx| {
-                let settings = this.ai_settings(cx);
-                this.ai_validation = Some(match Self::validate_ai_settings(&settings, cx) {
-                    Ok(message) => (AiValidationStatus::Success, message),
-                    Err(message) => (AiValidationStatus::Error, message),
-                });
-                cx.notify();
+                this.test_ai_settings(cx);
             }));
 
-        let apply_button = Button::new("apply-ai-settings")
-            .label(i18n_settings(cx, "ai_apply"))
+        let save_button = Button::new("save-ai-settings")
+            .label(i18n_settings(cx, "ai_save"))
             .primary()
+            .disabled(self.ai_test_loading || !has_unsaved_changes)
             .on_click(cx.listener(|this, _, _, cx| {
                 let settings = this.ai_settings(cx);
                 match Self::validate_ai_settings(&settings, cx) {
-                    Ok(message) => {
-                        this.ai_validation = Some((AiValidationStatus::Success, message));
-                        update_and_save(cx, "set_ai_settings", move |tide, _| {
-                            tide.set_ai(settings.clone());
-                        });
+                    Ok(()) => {
+                        this.ai_validation = Some((
+                            AiValidationStatus::Success,
+                            i18n_settings(cx, "ai_save_success"),
+                        ));
+                        this.save_ai_settings(cx);
                     }
                     Err(message) => {
                         this.ai_validation = Some((AiValidationStatus::Error, message));
@@ -571,6 +707,7 @@ impl SettingsView {
                                     div()
                                         .flex_1()
                                         .min_w_0()
+                                        .overflow_hidden()
                                         .child(Input::new(&self.ai_model).w_full().large()),
                                 )
                                 .when(supports_model_listing, |this| {
@@ -608,6 +745,36 @@ impl SettingsView {
                                 }),
                         ),
                 ),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_start()
+                    .gap_4()
+                    .py_2()
+                    .child(
+                        div()
+                            .w(px(112.))
+                            .flex_none()
+                            .pt_2()
+                            .text_sm()
+                            .font_weight(FontWeight(500.))
+                            .text_color(cx.theme().foreground)
+                            .child(i18n_settings(cx, "ai_custom_prompt")),
+                    )
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(Input::new(&self.ai_custom_prompt).h(px(112.)).w_full())
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(i18n_settings(cx, "ai_custom_prompt_desc")),
+                            ),
+                    ),
             )
             .when(provider.supports_openai_api_mode(), |this| {
                 let chat_selected = self.ai_openai_api_mode == OpenAiApiMode::ChatCompletions;
@@ -699,7 +866,7 @@ impl SettingsView {
                     .border_t_1()
                     .border_color(border_color)
                     .child(div().flex_1().min_w_0().children(status))
-                    .child(h_flex().gap_2().child(test_button).child(apply_button)),
+                    .child(h_flex().gap_2().child(test_button).child(save_button)),
             )
             .into_any_element()
     }

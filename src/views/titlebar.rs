@@ -7,9 +7,10 @@ use gpui_component::{
 };
 
 use crate::{
-    helpers::{LocaleAction, ThemeAction, i18n_titlebar},
+    helpers::{LocaleAction, ThemeAction, i18n_ai, i18n_titlebar},
     state::TideStore,
     updater,
+    views::open_ai_task_dialog,
 };
 
 pub struct TitleBarView;
@@ -68,6 +69,15 @@ impl Render for TitleBarView {
             .child(
                 right_actions
                     .child(
+                        Button::new("ai")
+                            .cursor_pointer()
+                            .tooltip(i18n_ai(cx, "button_tooltip"))
+                            .icon(IconName::Bot)
+                            .small()
+                            .ghost()
+                            .on_click(|_, window, cx| open_ai_task_dialog(window, cx)),
+                    )
+                    .child(
                         Button::new("settings")
                             .cursor_pointer()
                             .icon(IconName::Settings2)
@@ -79,7 +89,7 @@ impl Render for TitleBarView {
                     .child(
                         Button::new("github")
                             .cursor_pointer()
-                            .tooltip(i18n_titlebar(cx, "github_tooltip"))
+                            .tooltip("GitHub")
                             .icon(IconName::Github)
                             .small()
                             .ghost()

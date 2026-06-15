@@ -45,13 +45,16 @@ impl Render for DragGroup {
             .child(
                 Icon::new(IconName::CircleCheck)
                     .size_4()
+                    .flex_none()
                     .text_color(cx.theme().muted_foreground),
             )
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
                     .text_sm()
                     .text_color(cx.theme().foreground)
+                    .line_clamp(1)
                     .child(self.name.clone()),
             )
     }
@@ -554,12 +557,14 @@ impl SidebarView {
                 .child(
                     Icon::new(IconName::CircleCheck)
                         .size_4()
+                        .flex_none()
                         .text_color(icon_color),
                 )
                 .when(is_editing, |t| {
                     t.child(
                         div()
                             .flex_1()
+                            .min_w_0()
                             .child(
                                 Input::new(&group_input)
                                     .appearance(false)
@@ -577,12 +582,15 @@ impl SidebarView {
                     t.child(
                         div()
                             .flex_1()
+                            .min_w_0()
                             .text_sm()
                             .text_color(fg_color)
+                            .line_clamp(1)
                             .child(group_name),
                     )
                     .child(
                         div()
+                            .flex_none()
                             .opacity(if is_hovered { 1.0 } else { 0.0 })
                             .when(!is_hovered, |d| d.cursor_default())
                             .child(Self::render_options_menu(

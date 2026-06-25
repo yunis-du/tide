@@ -1,5 +1,5 @@
 mod about;
-mod ai_task_dialog;
+mod ai_task_window;
 mod content;
 pub mod floating;
 mod settings;
@@ -7,7 +7,7 @@ mod sidebar;
 mod titlebar;
 
 pub use about::open_about_window;
-pub use ai_task_dialog::open_ai_task_dialog;
+pub use ai_task_window::open_ai_task_window;
 pub use content::ContentView;
 pub use settings::SettingsView;
 pub use sidebar::SidebarView;

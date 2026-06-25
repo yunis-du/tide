@@ -1,6 +1,8 @@
 use std::rc::Rc;
 
-use gpui::{App, IntoElement, ParentElement, RenderOnce, Styled, Window, prelude::FluentBuilder};
+use gpui::{
+    App, ElementId, IntoElement, ParentElement, RenderOnce, Styled, Window, prelude::FluentBuilder,
+};
 use gpui_component::{
     Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
@@ -16,6 +18,7 @@ use crate::{
 pub struct DateTag {
     due: DueDate,
     removable: bool,
+    remove_id: Option<ElementId>,
     on_remove: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
 }
 
@@ -24,6 +27,7 @@ impl DateTag {
         Self {
             due,
             removable: false,
+            remove_id: None,
             on_remove: None,
         }
     }
@@ -37,12 +41,18 @@ impl DateTag {
         self.removable = true;
         self
     }
+
+    pub fn remove_id(mut self, id: impl Into<ElementId>) -> Self {
+        self.remove_id = Some(id.into());
+        self
+    }
 }
 
 impl RenderOnce for DateTag {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let color = due_date_color(cx, self.due);
         let label = due_date_label(cx, self.due);
+        let remove_id = self.remove_id.unwrap_or_else(|| "tag-remove".into());
 
         h_flex()
             .gap_1()
@@ -57,7 +67,7 @@ impl RenderOnce for DateTag {
             .child(label)
             .when(self.removable, |this| {
                 this.child(
-                    Button::new("tag-remove")
+                    Button::new(remove_id)
                         .icon(IconName::Close)
                         .ghost()
                         .xsmall()

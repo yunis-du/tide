@@ -10,7 +10,7 @@ use crate::{
     helpers::{LocaleAction, ThemeAction, i18n_ai, i18n_titlebar},
     state::TideStore,
     updater,
-    views::open_ai_task_dialog,
+    views::open_ai_task_window,
 };
 
 pub struct TitleBarView;
@@ -75,7 +75,7 @@ impl Render for TitleBarView {
                             .icon(IconName::Bot)
                             .small()
                             .ghost()
-                            .on_click(|_, window, cx| open_ai_task_dialog(window, cx)),
+                            .on_click(|_, _, cx| open_ai_task_window(cx)),
                     )
                     .child(
                         Button::new("settings")

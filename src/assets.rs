@@ -49,6 +49,7 @@ pub enum CustomIconName {
     Trash,
     Clock,
     Refresh,
+    Brain,
     // AI
     Anthropic,
     Deepseek,
@@ -67,6 +68,7 @@ impl CustomIconName {
             CustomIconName::Trash => "icons/trash.svg",
             CustomIconName::Clock => "icons/clock.svg",
             CustomIconName::Refresh => "icons/refresh.svg",
+            CustomIconName::Brain => "icons/brain.svg",
             // AI
             CustomIconName::Anthropic => "icons/ai/anthropic.svg",
             CustomIconName::Deepseek => "icons/ai/deepseek.svg",

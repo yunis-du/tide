@@ -129,9 +129,11 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import os
           import shutil
           import sys
 
+          version = os.environ["GITHUB_REF_NAME"].removeprefix("v")
           release_dir = Path("release")
           release_dir.mkdir(exist_ok=True)
 
@@ -148,18 +150,18 @@ jobs:
                   sys.exit(1)
               shutil.copy2(matches[0], release_dir / output_name)
 
-          copy_one("tide-macos-aarch64", ".dmg", "Tide_aarch64.dmg")
-          copy_one("tide-macos-x86_64", ".dmg", "Tide_x86_64.dmg")
+          copy_one("tide-macos-aarch64", ".dmg", f"Tide_Macos_{version}_aarch64.dmg")
+          copy_one("tide-macos-x86_64", ".dmg", f"Tide_Macos_{version}_x86_64.dmg")
           copy_one(
               "tide-windows-aarch64",
               ".exe",
-              "tide_aarch64-setup.exe",
+              f"Tide_Windows_{version}_aarch64-setup.exe",
               lambda name: "setup" in name or "installer" in name,
           )
           copy_one(
               "tide-windows-x86_64",
               ".exe",
-              "tide_x86_64-setup.exe",
+              f"Tide_Windows_{version}_x86_64-setup.exe",
               lambda name: "setup" in name or "installer" in name,
           )
           PY
@@ -244,16 +246,16 @@ jobs:
               "pub_date": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
               "platforms": {
                   "macos-aarch64": {
-                      "url": f"{base_url}/{version}/Tide_aarch64.dmg",
+                      "url": f"{base_url}/{version}/Tide_Macos_{version}_aarch64.dmg",
                   },
                   "macos-x86_64": {
-                      "url": f"{base_url}/{version}/Tide_x86_64.dmg",
+                      "url": f"{base_url}/{version}/Tide_Macos_{version}_x86_64.dmg",
                   },
                   "windows-x86_64": {
-                      "url": f"{base_url}/{version}/tide_x86_64-setup.exe",
+                      "url": f"{base_url}/{version}/Tide_Windows_{version}_x86_64-setup.exe",
                   },
                   "windows-aarch64": {
-                      "url": f"{base_url}/{version}/tide_aarch64-setup.exe",
+                      "url": f"{base_url}/{version}/Tide_Windows_{version}_aarch64-setup.exe",
                   },
               },
           }

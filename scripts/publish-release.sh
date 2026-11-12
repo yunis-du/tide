@@ -23,10 +23,10 @@ download_base_url="${DOWNLOAD_BASE_URL:-http://download.yunisdu.com/tide}"
 : "${DEPLOY_ROOT:?Missing DEPLOY_ROOT}"
 
 required_files=(
-  "Tide_aarch64.dmg"
-  "Tide_x86_64.dmg"
-  "tide_aarch64-setup.exe"
-  "tide_x86_64-setup.exe"
+  "Tide_Macos_${version}_aarch64.dmg"
+  "Tide_Macos_${version}_x86_64.dmg"
+  "Tide_Windows_${version}_aarch64-setup.exe"
+  "Tide_Windows_${version}_x86_64-setup.exe"
 )
 
 for file in "${required_files[@]}"; do
@@ -59,16 +59,16 @@ manifest = {
     "pub_date": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     "platforms": {
         "macos-aarch64": {
-            "url": f"{base_url}/{version}/Tide_aarch64.dmg",
+            "url": f"{base_url}/{version}/Tide_Macos_{version}_aarch64.dmg",
         },
         "macos-x86_64": {
-            "url": f"{base_url}/{version}/Tide_x86_64.dmg",
+            "url": f"{base_url}/{version}/Tide_Macos_{version}_x86_64.dmg",
         },
         "windows-x86_64": {
-            "url": f"{base_url}/{version}/tide_x86_64-setup.exe",
+            "url": f"{base_url}/{version}/Tide_Windows_{version}_x86_64-setup.exe",
         },
         "windows-aarch64": {
-            "url": f"{base_url}/{version}/tide_aarch64-setup.exe",
+            "url": f"{base_url}/{version}/Tide_Windows_{version}_aarch64-setup.exe",
         },
     },
 }

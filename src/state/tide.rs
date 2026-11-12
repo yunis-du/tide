@@ -5,6 +5,9 @@ use gpui_component::ThemeMode;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
+use super::persistence::{
+    Format, Loaded, Persistence, SaveKind, SaveResult, load_file, save_file, wait_for_save,
+};
 use crate::helpers::get_or_create_config_path;
 
 const LIGHT_THEME_MODE: &str = "light";
@@ -288,7 +291,7 @@ impl Default for TideStatus {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tide {
     pub locale: Option<String>,
     bounds: Option<Bounds<Pixels>>,
@@ -311,6 +314,25 @@ pub struct Tide {
     ai: AiSettings,
     #[serde(skip)]
     status: TideStatus,
+}
+
+impl Default for Tide {
+    fn default() -> Self {
+        Self {
+            locale: None,
+            bounds: None,
+            theme: None,
+            launch_at_login: false,
+            show_main_window_on_startup: true,
+            close_behavior: CloseBehavior::default(),
+            default_view: DefaultView::default(),
+            completed_expanded_by_default: false,
+            auto_check_updates: false,
+            notifications: NotificationSettings::default(),
+            ai: AiSettings::default(),
+            status: TideStatus::default(),
+        }
+    }
 }
 
 impl Tide {
@@ -409,16 +431,12 @@ impl Tide {
 
 pub fn save_config(config: &Tide) -> Result<()> {
     let path = get_or_create_config_path()?;
-    let value = toml::to_string(config)?;
-    std::fs::write(path, value)?;
-    Ok(())
+    save_file(&path, config, Format::Toml)
 }
 
-pub fn load_config() -> Result<Tide> {
+pub fn load_config() -> Result<Loaded<Tide>> {
     let path = get_or_create_config_path()?;
-    let value = std::fs::read_to_string(path)?;
-    let config: Tide = toml::from_str(&value)?;
-    Ok(config)
+    load_file(&path, Format::Toml)
 }
 
 #[derive(Debug, Clone)]
@@ -447,29 +465,45 @@ impl TideStore {
 impl Global for TideStore {}
 
 #[inline]
-pub fn update_and_save<F>(cx: &App, action_name: &'static str, mutation: F)
+pub fn update_and_save<F>(cx: &mut App, action_name: &'static str, mutation: F)
 where
     F: FnOnce(&mut Tide, &App) + Send + 'static + Clone,
 {
+    update_and_save_with_callback(cx, action_name, mutation, |_, _| {});
+}
+
+pub fn update_and_save_with_callback<F>(
+    cx: &mut App,
+    action_name: &'static str,
+    mutation: F,
+    on_saved: impl FnOnce(SaveResult, &mut App) + 'static,
+) where
+    F: FnOnce(&mut Tide, &App) + Send + 'static + Clone,
+{
     let store = cx.global::<TideStore>().clone();
-
+    let current = store.update(cx, |tide, cx| {
+        mutation(tide, cx);
+        cx.notify();
+        tide.clone()
+    });
+    let ai = current.ai().clone();
+    let (revision, receipt) = cx
+        .global_mut::<Persistence>()
+        .enqueue_config(ai, move || save_config(&current));
+    cx.refresh_windows();
     cx.spawn(async move |cx| {
-        let current = store.update(cx, |tide, cx| {
-            mutation(tide, cx);
-            tide.clone()
+        let result = wait_for_save(receipt).await;
+        if let Err(error) = &result {
+            error!(%error, action = action_name, "Failed to save config");
+        } else {
+            info!(action = action_name, "Config saved successfully");
+        }
+        cx.update(|cx| {
+            cx.global_mut::<Persistence>()
+                .record(SaveKind::Config, revision, &result);
+            on_saved(result, cx);
+            cx.refresh_windows();
         });
-
-        cx.background_executor()
-            .spawn(async move {
-                if let Err(e) = save_config(&current) {
-                    error!(error = %e, action = action_name, "Failed to save config");
-                } else {
-                    info!(action = action_name, "Config saved successfully");
-                }
-            })
-            .await;
-
-        cx.update(|cx| cx.refresh_windows());
     })
     .detach();
 }
@@ -489,4 +523,45 @@ where
         cx.update(|cx| cx.refresh_windows());
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_configuration_defaults_match_empty_toml() {
+        let directory = tempfile::tempdir().unwrap();
+        let loaded = load_file::<Tide>(&directory.path().join("tide.toml"), Format::Toml).unwrap();
+        let empty: Tide = toml::from_str("").unwrap();
+        assert_eq!(
+            toml::to_string(&loaded.value).unwrap(),
+            toml::to_string(&empty).unwrap()
+        );
+        assert!(loaded.value.show_main_window_on_startup());
+        assert!(!loaded.recovered);
+    }
+
+    #[test]
+    fn restores_configuration_without_exposing_secret_parse_context() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("tide.toml");
+        let mut config = Tide::default();
+        config.set_ai(AiSettings {
+            model: "saved-model".into(),
+            ..Default::default()
+        });
+        save_file(&path, &config, Format::Toml).unwrap();
+        config.set_locale("zh-CN".into());
+        save_file(&path, &config, Format::Toml).unwrap();
+        std::fs::write(&path, "[ai]\napi_key = \"test-private-key").unwrap();
+
+        let restored = load_file::<Tide>(&path, Format::Toml).unwrap();
+        assert!(restored.recovered);
+        assert_eq!(restored.value.ai().model, "saved-model");
+        std::fs::write(path.with_extension("toml.bak"), "broken = [").unwrap();
+        std::fs::write(&path, "[ai]\napi_key = \"test-private-key").unwrap();
+        let error = load_file::<Tide>(&path, Format::Toml).err().unwrap();
+        assert!(!format!("{error:#}").contains("test-private-key"));
+    }
 }

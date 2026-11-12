@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::fs;
 
 use anyhow::Result;
 use chrono::{Local, NaiveDate, NaiveTime};
@@ -11,6 +10,9 @@ use tracing::{error, info};
 
 use rust_i18n::t;
 
+use super::persistence::{
+    Format, Loaded, Persistence, SaveKind, load_file, save_file, wait_for_save,
+};
 use crate::helpers::get_or_create_data_path;
 
 static TASK_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -252,9 +254,17 @@ impl TideData {
         self.tasks.insert(flat_idx, task);
     }
 
-    pub fn update_task(&mut self, task: Task) {
-        if let Some(idx) = self.tasks.iter().position(|t| t.id == task.id) {
-            self.tasks[idx] = task;
+    pub fn update_task_content(
+        &mut self,
+        task_id: &str,
+        title: String,
+        details: Option<String>,
+        due_date: Option<DueDate>,
+    ) {
+        if let Some(task) = self.tasks.iter_mut().find(|task| task.id == task_id) {
+            task.title = title;
+            task.details = details;
+            task.due_date = due_date;
         }
     }
 
@@ -434,19 +444,16 @@ impl TideData {
 
 pub fn save_data(data: &TideData) -> Result<()> {
     let path = get_or_create_data_path()?;
-    let value = serde_json::to_string_pretty(data)?;
-    fs::write(path, value)?;
-    Ok(())
+    save_file(&path, data, Format::Json)
 }
 
-pub fn load_data() -> Result<TideData> {
+pub fn load_data() -> Result<Loaded<TideData>> {
     let path = get_or_create_data_path()?;
-    let value = fs::read_to_string(path)?;
-    let mut data: TideData = serde_json::from_str(&value)?;
-    if data.task_groups.is_empty() {
-        data.task_groups.push(TaskGroup::default_group());
+    let mut loaded = load_file::<TideData>(&path, Format::Json)?;
+    if loaded.value.task_groups.is_empty() {
+        loaded.value.task_groups.push(TaskGroup::default_group());
     }
-    Ok(data)
+    Ok(loaded)
 }
 
 #[derive(Debug, Clone)]
@@ -475,30 +482,32 @@ impl TideDataStore {
 impl Global for TideDataStore {}
 
 #[inline]
-pub fn update_data_and_save<F>(cx: &App, action_name: &'static str, mutation: F)
+pub fn update_data_and_save<F>(cx: &mut App, action_name: &'static str, mutation: F)
 where
     F: FnOnce(&mut TideData, &App) + Send + 'static + Clone,
 {
     let store = cx.global::<TideDataStore>().clone();
-
+    let current = store.update(cx, |data, cx| {
+        mutation(data, cx);
+        cx.notify();
+        data.clone()
+    });
+    let (revision, receipt) = cx
+        .global_mut::<Persistence>()
+        .enqueue(SaveKind::Tasks, move || save_data(&current));
+    cx.refresh_windows();
     cx.spawn(async move |cx| {
-        let current = store.update(cx, |data, cx| {
-            mutation(data, cx);
-            cx.notify();
-            data.clone()
+        let result = wait_for_save(receipt).await;
+        if let Err(error) = &result {
+            error!(%error, action = action_name, "Failed to save tasks");
+        } else {
+            info!(action = action_name, "Tasks saved successfully");
+        }
+        cx.update(|cx| {
+            cx.global_mut::<Persistence>()
+                .record(SaveKind::Tasks, revision, &result);
+            cx.refresh_windows();
         });
-
-        cx.background_executor()
-            .spawn(async move {
-                if let Err(e) = save_data(&current) {
-                    error!(error = %e, action = action_name, "Failed to save tasks");
-                } else {
-                    info!(action = action_name, "Tasks saved successfully");
-                }
-            })
-            .await;
-
-        cx.update(|cx| cx.refresh_windows());
     })
     .detach();
 }
@@ -549,6 +558,58 @@ mod tests {
         assert_eq!(data.tasks[1].completed_at, None);
         assert!(!data.tasks[1].is_starred);
         assert_eq!(data.tasks[1].parent_id, None);
+    }
+
+    #[test]
+    fn editing_task_content_preserves_star_and_metadata() {
+        let mut task = Task::new("my-group", "Original title");
+        task.is_starred = true;
+        let other_task = Task::new("other-group", "Other task");
+        let due_date = Some(DueDate::new(
+            NaiveDate::from_ymd_opt(2026, 11, 12).unwrap(),
+            Some(NaiveTime::from_hms_opt(9, 30, 0).unwrap()),
+        ));
+        let expected = Task {
+            title: "Edited title".to_string(),
+            details: Some("Edited details".to_string()),
+            due_date,
+            ..task.clone()
+        };
+        let mut data = TideData {
+            tasks: vec![task.clone(), other_task.clone()],
+            ..Default::default()
+        };
+
+        data.update_task_content(
+            &task.id,
+            "Edited title".to_string(),
+            Some("Edited details".to_string()),
+            due_date,
+        );
+
+        assert_eq!(data.tasks, vec![expected, other_task]);
+    }
+
+    #[test]
+    fn editing_task_content_can_clear_details_and_due_date() {
+        let mut task = Task::new("my-group", "Original title");
+        task.is_starred = true;
+        task.details = Some("Original details".to_string());
+        task.due_date = Some(DueDate::new(
+            NaiveDate::from_ymd_opt(2026, 11, 12).unwrap(),
+            None,
+        ));
+        let mut data = TideData {
+            tasks: vec![task.clone()],
+            ..Default::default()
+        };
+
+        data.update_task_content(&task.id, "Edited title".to_string(), None, None);
+
+        assert!(data.tasks[0].is_starred);
+        assert_eq!(data.tasks[0].title, "Edited title");
+        assert_eq!(data.tasks[0].details, None);
+        assert_eq!(data.tasks[0].due_date, None);
     }
 
     #[test]

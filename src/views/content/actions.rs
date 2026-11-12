@@ -63,8 +63,7 @@ impl TaskView {
                 let etid = edit_task_id.clone();
                 update_data_and_save(cx, "create_task", move |data, _| {
                     if let Some(tid) = etid {
-                        task.id = tid;
-                        data.update_task(task);
+                        data.update_task_content(&tid, task.title, task.details, task.due_date);
                     } else {
                         data.insert_task(idx, task);
                     }

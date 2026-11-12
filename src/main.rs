@@ -7,13 +7,17 @@ use gpui::{
     Render, Styled, Window, WindowAppearance, WindowBounds, WindowHandle, WindowOptions,
     prelude::FluentBuilder, px, size,
 };
-use gpui_component::{ActiveTheme, Root, Theme, ThemeMode, h_flex, v_flex};
+use gpui_component::{
+    ActiveTheme, Root, Sizable, Theme, ThemeMode, button::Button, h_flex, v_flex,
+};
+use rust_i18n::t;
 
 use crate::{
     helpers::{HotKeyAction, LocaleAction, ThemeAction, default_ui_locale, new_hot_keys},
     state::{
         CloseBehavior, DefaultView, SidebarSelection, TideDataStore, TideStore,
         data::load_data,
+        persistence::{Persistence, wait_for_save},
         tide::{load_config, save_config},
         update_and_save,
     },
@@ -178,12 +182,49 @@ impl Render for Tide {
         let dialog_layer = Root::render_dialog_layer(_window, cx);
         let settings_open = cx.global::<TideDataStore>().read(cx).sidebar_selection()
             == &SidebarSelection::Settings;
+        let persistence = cx.global::<Persistence>();
+        let storage_notice = if persistence.has_errors() {
+            Some((t!("persistence.save_failed").to_string(), true))
+        } else if persistence.recovered {
+            Some((t!("persistence.recovered").to_string(), false))
+        } else {
+            None
+        };
+        let storage_banner = storage_notice.map(|(message, retry)| {
+            h_flex()
+                .px_4()
+                .py_2()
+                .gap_3()
+                .bg(cx.theme().muted)
+                .child(gpui::div().flex_1().text_sm().child(message))
+                .child(
+                    Button::new("storage-action")
+                        .label(
+                            if retry {
+                                t!("persistence.retry")
+                            } else {
+                                t!("persistence.dismiss")
+                            }
+                            .to_string(),
+                        )
+                        .small()
+                        .on_click(move |_, _, cx| {
+                            if retry {
+                                Persistence::retry(cx);
+                            } else {
+                                cx.global_mut::<Persistence>().recovered = false;
+                                cx.refresh_windows();
+                            }
+                        }),
+                )
+        });
 
         v_flex()
             .id(PKG_NAME)
             .bg(cx.theme().background)
             .size_full()
             .child(self.titlebar.clone())
+            .children(storage_banner)
             .child(
                 h_flex()
                     .flex_1()
@@ -255,11 +296,21 @@ fn main() {
 
     let app = gpui_platform::application().with_assets(assets::Assets);
 
-    // Load persisted config; fall back to defaults on error.
-    let mut app_config = load_config().unwrap_or_default();
+    rust_i18n::set_locale(default_ui_locale());
+    let loaded_config = match load_config() {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            show_storage_error(&error);
+            return;
+        }
+    };
+    let mut app_config = loaded_config.value;
     if app_config.locale.is_none() {
         app_config.locale = Some(default_ui_locale().to_string());
-        let _ = save_config(&app_config);
+        if let Err(error) = save_config(&app_config) {
+            show_storage_error(&error);
+            return;
+        }
     }
 
     // Apply the locale before any data load: first-run creates a default
@@ -268,7 +319,24 @@ fn main() {
     let locale = app_config.locale.as_deref().unwrap_or("en");
     rust_i18n::set_locale(locale);
 
-    let mut task_data = load_data().unwrap_or_default();
+    let loaded_data = match load_data() {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            show_storage_error(&error);
+            return;
+        }
+    };
+    let persistence = match Persistence::new(
+        loaded_config.recovered || loaded_data.recovered,
+        app_config.ai().clone(),
+    ) {
+        Ok(persistence) => persistence,
+        Err(error) => {
+            show_storage_error(&error);
+            return;
+        }
+    };
+    let mut task_data = loaded_data.value;
     if task_data.task_groups.is_empty() {
         task_data
             .task_groups
@@ -290,6 +358,22 @@ fn main() {
     app.run(move |cx| {
         gpui_component::init(cx);
         gpui_component::set_locale(app_config.locale.as_deref().unwrap_or("en"));
+        cx.set_global(persistence);
+        cx.on_app_quit(|cx| {
+            // GPUI only gives async shutdown hooks 100 ms. Drain the independent
+            // writer here before returning a completed shutdown future.
+            if let Err(error) =
+                futures::executor::block_on(wait_for_save(cx.global::<Persistence>().queue.flush()))
+            {
+                rfd::MessageDialog::new()
+                    .set_level(rfd::MessageLevel::Error)
+                    .set_title(t!("persistence.error_title").as_ref())
+                    .set_description(t!("persistence.quit_failed", error = error).as_ref())
+                    .show();
+            }
+            async {}
+        })
+        .detach();
 
         // Drop the previous run's cached installer (if any) on startup. We
         // can't safely delete it right after spawning the installer process
@@ -394,4 +478,13 @@ fn main() {
         })
         .detach();
     });
+}
+
+fn show_storage_error(error: &anyhow::Error) {
+    tracing::error!(error = %error, "Cannot load local storage");
+    rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Error)
+        .set_title(t!("persistence.error_title").as_ref())
+        .set_description(t!("persistence.load_failed", error = format!("{error:#}")).as_ref())
+        .show();
 }

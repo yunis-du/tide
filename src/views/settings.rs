@@ -17,12 +17,14 @@ use gpui_component::{
 use tracing::error;
 
 use crate::{
-    ai::{fetch_models, test_connection},
+    ai::{fetch_models, supports_thinking_toggle, test_connection},
     assets::CustomIconName,
     autostart,
     helpers::{active_item_bg, i18n_settings, interactive_accent},
     state::{
         AiProvider, AiSettings, CloseBehavior, DefaultView, OpenAiApiMode, TideStore,
+        persistence::{Persistence, SaveResult},
+        tide::update_and_save_with_callback,
         update_and_save, update_data_and_save,
     },
     tray,
@@ -31,6 +33,31 @@ use crate::{
 enum AiValidationStatus {
     Success,
     Error,
+}
+
+struct AiSaveState {
+    saved: AiSettings,
+    pending: Option<AiSettings>,
+    failed: bool,
+}
+
+impl AiSaveState {
+    fn new(saved: AiSettings) -> Self {
+        Self {
+            saved,
+            pending: None,
+            failed: false,
+        }
+    }
+
+    fn finish(&mut self, result: &SaveResult) {
+        self.failed = result.is_err();
+        if let Some(submitted) = self.pending.take()
+            && result.is_ok()
+        {
+            self.saved = submitted;
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -91,7 +118,7 @@ pub struct SettingsView {
     ai_custom_prompt: Entity<InputState>,
     ai_openai_api_mode: OpenAiApiMode,
     ai_thinking_enabled: bool,
-    saved_ai_settings: AiSettings,
+    ai_save: AiSaveState,
     ai_validation: Option<(AiValidationStatus, String)>,
     ai_test_loading: bool,
     ai_models: Vec<String>,
@@ -159,7 +186,7 @@ impl SettingsView {
             ai_custom_prompt,
             ai_openai_api_mode: ai.openai_api_mode,
             ai_thinking_enabled: ai.thinking_enabled,
-            saved_ai_settings: ai,
+            ai_save: AiSaveState::new(ai),
             ai_validation: None,
             ai_test_loading: false,
             ai_models: Vec::new(),
@@ -169,12 +196,47 @@ impl SettingsView {
         }
     }
 
-    fn save_ai_settings(&mut self, cx: &App) {
+    fn save_ai_settings(&mut self, cx: &mut Context<Self>) {
+        if self.ai_save.pending.is_some() {
+            return;
+        }
         let settings = self.ai_settings(cx);
-        self.saved_ai_settings = settings.clone();
-        update_and_save(cx, "set_ai_settings", move |tide, _| {
-            tide.set_ai(settings.clone());
-        });
+        if let Err(message) = Self::validate_ai_settings(&settings, cx) {
+            self.ai_validation = Some((AiValidationStatus::Error, message));
+            cx.notify();
+            return;
+        }
+        self.ai_save.pending = Some(settings.clone());
+        self.ai_save.failed = false;
+        self.ai_validation = None;
+        let weak = cx.entity().downgrade();
+        update_and_save_with_callback(
+            cx,
+            "set_ai_settings",
+            move |tide, _| tide.set_ai(settings.clone()),
+            move |result, cx| {
+                let _ = weak.update(cx, |this, cx| {
+                    this.ai_save.finish(&result);
+                    this.ai_validation =
+                        if this.ai_settings(cx) == cx.global::<Persistence>().saved_ai {
+                            this.ai_save.failed = false;
+                            Some((
+                                AiValidationStatus::Success,
+                                i18n_settings(cx, "ai_save_success"),
+                            ))
+                        } else if result.is_err() {
+                            Some((
+                                AiValidationStatus::Error,
+                                i18n_settings(cx, "ai_save_failed"),
+                            ))
+                        } else {
+                            None
+                        };
+                    cx.notify();
+                });
+            },
+        );
+        cx.notify();
     }
 
     fn set_ai_provider(
@@ -321,6 +383,7 @@ impl SettingsView {
         }
 
         self.ai_test_loading = true;
+        self.ai_save.failed = false;
         self.ai_validation = Some((
             AiValidationStatus::Success,
             i18n_settings(cx, "ai_test_testing"),
@@ -328,12 +391,18 @@ impl SettingsView {
         cx.notify();
 
         let weak = cx.entity().downgrade();
+        let request_settings = settings.clone();
         cx.spawn(async move |_, cx| {
             let result = cx
                 .background_spawn(async move { test_connection(&settings) })
                 .await;
             let _ = weak.update(cx, |this, cx| {
                 this.ai_test_loading = false;
+                if this.ai_settings(cx) != request_settings {
+                    this.ai_validation = None;
+                    cx.notify();
+                    return;
+                }
                 this.ai_validation = Some(match result {
                     Ok(()) => (
                         AiValidationStatus::Success,
@@ -526,7 +595,10 @@ impl SettingsView {
     fn render_ai_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let weak = cx.entity().downgrade();
         let model_weak = weak.clone();
-        let has_unsaved_changes = self.ai_settings(cx) != self.saved_ai_settings;
+        let settings = self.ai_settings(cx);
+        let has_unsaved_changes = settings != self.ai_save.saved;
+        let saving = self.ai_save.pending.is_some();
+        let thinking_supported = supports_thinking_toggle(&settings);
         let provider = self.ai_provider;
         let supports_model_listing = provider.supports_model_listing();
         let api_key_optional = !provider.requires_api_key();
@@ -627,30 +699,21 @@ impl SettingsView {
         let test_button = Button::new("test-ai-settings")
             .label(i18n_settings(cx, "ai_test"))
             .loading(self.ai_test_loading)
-            .disabled(self.ai_test_loading)
+            .disabled(self.ai_test_loading || saving)
             .on_click(cx.listener(|this, _, _, cx| {
                 this.test_ai_settings(cx);
             }));
 
         let save_button = Button::new("save-ai-settings")
-            .label(i18n_settings(cx, "ai_save"))
+            .label(i18n_settings(
+                cx,
+                if saving { "ai_saving" } else { "ai_save" },
+            ))
             .primary()
-            .disabled(self.ai_test_loading || !has_unsaved_changes)
+            .loading(saving)
+            .disabled(self.ai_test_loading || saving || !has_unsaved_changes)
             .on_click(cx.listener(|this, _, _, cx| {
-                let settings = this.ai_settings(cx);
-                match Self::validate_ai_settings(&settings, cx) {
-                    Ok(()) => {
-                        this.ai_validation = Some((
-                            AiValidationStatus::Success,
-                            i18n_settings(cx, "ai_save_success"),
-                        ));
-                        this.save_ai_settings(cx);
-                    }
-                    Err(message) => {
-                        this.ai_validation = Some((AiValidationStatus::Error, message));
-                    }
-                }
-                cx.notify();
+                this.save_ai_settings(cx);
             }));
 
         v_flex()
@@ -818,8 +881,18 @@ impl SettingsView {
                         .items_center()
                         .child(
                             Switch::new("ai-thinking")
-                                .checked(self.ai_thinking_enabled)
-                                .label(i18n_settings(cx, "ai_thinking_enabled"))
+                                .checked(thinking_supported && self.ai_thinking_enabled)
+                                .disabled(!thinking_supported)
+                                .label(i18n_settings(
+                                    cx,
+                                    if !thinking_supported {
+                                        "ai_thinking_default"
+                                    } else if self.ai_thinking_enabled {
+                                        "ai_thinking_enabled"
+                                    } else {
+                                        "ai_thinking_disabled"
+                                    },
+                                ))
                                 .on_click(cx.listener(|this, enabled, _, cx| {
                                     this.ai_thinking_enabled = *enabled;
                                     this.ai_validation = None;
@@ -855,6 +928,14 @@ impl SettingsView {
                         ),
                 ),
             )
+            .when(!thinking_supported, |this| {
+                this.child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(i18n_settings(cx, "ai_thinking_unavailable")),
+                )
+            })
             .child(
                 h_flex()
                     .w_full()
@@ -874,6 +955,20 @@ impl SettingsView {
 
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let saved_ai = cx.global::<Persistence>().saved_ai.clone();
+        if saved_ai != self.ai_save.saved {
+            self.ai_save.saved = saved_ai;
+        }
+        if self.ai_save.pending.is_none()
+            && self.ai_save.failed
+            && self.ai_settings(cx) == self.ai_save.saved
+        {
+            self.ai_save.failed = false;
+            self.ai_validation = Some((
+                AiValidationStatus::Success,
+                i18n_settings(cx, "ai_save_success"),
+            ));
+        }
         let config = cx.global::<TideStore>().read(cx);
         let launch_at_login = config.launch_at_login();
         let show_main_window_on_startup = config.show_main_window_on_startup();
@@ -1332,5 +1427,47 @@ impl Render for SettingsView {
                             ),
                     ),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_ai_save_keeps_the_previous_saved_settings() {
+        let original = AiSettings::default();
+        let mut state = AiSaveState::new(original.clone());
+        state.pending = Some(AiSettings {
+            model: "edited-model".into(),
+            ..original.clone()
+        });
+
+        state.finish(&Err("Disk unavailable".into()));
+
+        assert_eq!(state.saved, original);
+        assert!(state.pending.is_none());
+        assert!(state.failed);
+    }
+
+    #[test]
+    fn successful_ai_save_records_only_the_submitted_settings() {
+        let mut state = AiSaveState::new(AiSettings::default());
+        let submitted = AiSettings {
+            model: "submitted-model".into(),
+            ..Default::default()
+        };
+        let edited_while_saving = AiSettings {
+            model: "newer-unsaved-model".into(),
+            ..Default::default()
+        };
+        state.pending = Some(submitted.clone());
+
+        state.finish(&Ok(()));
+
+        assert_eq!(state.saved, submitted);
+        assert_ne!(state.saved, edited_while_saving);
+        assert!(state.pending.is_none());
+        assert!(!state.failed);
     }
 }

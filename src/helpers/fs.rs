@@ -21,13 +21,7 @@ pub fn get_or_create_config_path() -> Result<PathBuf> {
         fs::create_dir_all(&config_dir)?;
     }
 
-    let config_path = config_dir.join("tide.toml");
-    if config_path.exists() {
-        return Ok(config_path);
-    }
-    std::fs::write(&config_path, "")?;
-
-    Ok(config_path)
+    Ok(config_dir.join("tide.toml"))
 }
 
 pub fn get_or_create_data_path() -> Result<PathBuf> {
@@ -36,12 +30,7 @@ pub fn get_or_create_data_path() -> Result<PathBuf> {
     if !data_dir.exists() {
         fs::create_dir_all(&data_dir)?;
     }
-    let data_path = data_dir.join("data.json");
-
-    if !data_path.exists() {
-        std::fs::write(&data_path, "")?;
-    }
-    Ok(data_path)
+    Ok(data_dir.join("data.json"))
 }
 
 pub fn get_or_create_notifications_path() -> Result<PathBuf> {

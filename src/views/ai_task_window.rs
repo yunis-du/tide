@@ -28,8 +28,8 @@ use crate::{
     components::{DateTag, DueTimeInput},
     helpers::{due_date_label, i18n_ai, i18n_content, parse_due_time},
     state::{
-        AiSettings, DueDate, SidebarSelection, Task, TideDataStore, TideStore, data::new_id,
-        tide::update_status, update_data_and_save,
+        AiSettings, DueDate, SidebarSelection, Task, TideDataStore, data::new_id,
+        persistence::Persistence, tide::update_status, update_data_and_save,
     },
 };
 
@@ -182,7 +182,7 @@ impl AiTaskWindow {
             return;
         };
 
-        let settings = cx.global::<TideStore>().read(cx).ai().clone();
+        let settings = cx.global::<Persistence>().saved_ai.clone();
         if !ai_settings_ready(&settings) {
             self.error = Some(i18n_ai(cx, "settings_required"));
             cx.notify();
@@ -1600,7 +1600,7 @@ fn ai_settings_ready(settings: &AiSettings) -> bool {
         && (!settings.provider.requires_api_key() || !settings.api_key.trim().is_empty())
 }
 
-fn save_generated_tasks(cx: &App, group_id: String, generated: Vec<GeneratedTask>) {
+fn save_generated_tasks(cx: &mut App, group_id: String, generated: Vec<GeneratedTask>) {
     update_data_and_save(cx, "create_ai_tasks", move |data, _| {
         for (index, generated_task) in generated.iter().enumerate() {
             let mut task = Task::new(group_id.clone(), generated_task.title.clone());

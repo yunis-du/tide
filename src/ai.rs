@@ -13,7 +13,10 @@ use rig::{
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 
-use crate::state::{AiProvider, AiSettings, DueDate, OpenAiApiMode};
+use crate::state::{AiProvider, AiSettings, DueDate};
+
+mod thinking;
+pub use thinking::supports_thinking_toggle;
 
 const GENERATE_TASKS_TIMEOUT: Duration = Duration::from_secs(120);
 const CONNECTION_TEST_TIMEOUT: Duration = Duration::from_secs(20);
@@ -106,9 +109,12 @@ fn generate_tasks_with_timeout(
         .build()
         .context("create AI runtime")?;
     runtime.block_on(async {
-        tokio::time::timeout(timeout, generate_tasks_async(settings, description))
-            .await
-            .context("AI request timed out")?
+        tokio::time::timeout(
+            timeout,
+            generate_tasks_streaming_async(settings, description, &mut |_| {}),
+        )
+        .await
+        .context("AI request timed out")?
     })
 }
 
@@ -136,70 +142,6 @@ pub fn preview_generated_tasks_from_stream(raw: &str) -> Vec<GeneratedTask> {
         .collect()
 }
 
-async fn generate_tasks_async(
-    settings: &AiSettings,
-    description: &str,
-) -> Result<Vec<GeneratedTask>> {
-    let today = chrono::Local::now();
-    let prompt = format!(
-        "Create a practical todo plan from the user's description.\n\
-         Current local date and time: {}.\n\
-         Return at most {MAX_GENERATED_TASKS} top-level tasks.\n\
-         Titles must be concise and non-empty. Put supporting context in details.\n\
-         Use subtasks only when they make the parent task meaningfully actionable.\n\
-         due_date must be YYYY-MM-DD or null. due_time must be HH:MM in 24-hour time or null.\n\
-         Set is_starred only for genuinely important or urgent top-level tasks.\n\n\
-         User description:\n{}",
-        today.format("%Y-%m-%d %H:%M %:z"),
-        description.trim()
-    );
-
-    let extracted = match settings.provider {
-        AiProvider::OpenAi if settings.openai_api_mode == OpenAiApiMode::Responses => {
-            let client = openai::Client::builder()
-                .api_key(settings.api_key.trim())
-                .base_url(normalize_endpoint(&settings.endpoint))
-                .build()
-                .context("build OpenAI client")?;
-            extract(&client, &settings.model, &prompt, &settings.custom_prompt).await?
-        }
-        AiProvider::OpenAi | AiProvider::OpenAiCompatible | AiProvider::DeepSeek => {
-            let client = openai::CompletionsClient::builder()
-                .api_key(settings.api_key.trim())
-                .base_url(normalize_endpoint(&settings.endpoint))
-                .build()
-                .context("build OpenAI-compatible client")?;
-            extract(&client, &settings.model, &prompt, &settings.custom_prompt).await?
-        }
-        AiProvider::Ollama => {
-            let client = openai::CompletionsClient::builder()
-                .api_key(settings.api_key.trim())
-                .base_url(normalize_endpoint(&settings.endpoint))
-                .build()
-                .context("build Ollama client")?;
-            extract(&client, &settings.model, &prompt, &settings.custom_prompt).await?
-        }
-        AiProvider::Claude => {
-            let client = anthropic::Client::builder()
-                .api_key(settings.api_key.trim())
-                .base_url(normalize_endpoint(&settings.endpoint))
-                .build()
-                .context("build Anthropic client")?;
-            extract(&client, &settings.model, &prompt, &settings.custom_prompt).await?
-        }
-        AiProvider::Gemini => {
-            let client = gemini::Client::builder()
-                .api_key(settings.api_key.trim())
-                .base_url(normalize_endpoint(&settings.endpoint))
-                .build()
-                .context("build Gemini client")?;
-            extract(&client, &settings.model, &prompt, &settings.custom_prompt).await?
-        }
-    };
-
-    normalize_generated_tasks(extracted)
-}
-
 async fn generate_tasks_streaming_async(
     settings: &AiSettings,
     description: &str,
@@ -208,20 +150,13 @@ async fn generate_tasks_streaming_async(
     let prompt = build_task_prompt(description);
 
     let extracted = match settings.provider {
-        AiProvider::OpenAi if settings.openai_api_mode == OpenAiApiMode::Responses => {
+        AiProvider::OpenAi | AiProvider::OpenAiCompatible if thinking::uses_responses(settings) => {
             let client = openai::Client::builder()
                 .api_key(settings.api_key.trim())
                 .base_url(normalize_endpoint(&settings.endpoint))
                 .build()
                 .context("build OpenAI client")?;
-            extract_streaming(
-                &client,
-                &settings.model,
-                &prompt,
-                &settings.custom_prompt,
-                on_event,
-            )
-            .await?
+            extract_streaming(&client, settings, &prompt, on_event).await?
         }
         AiProvider::OpenAi | AiProvider::OpenAiCompatible | AiProvider::DeepSeek => {
             let client = openai::CompletionsClient::builder()
@@ -229,14 +164,7 @@ async fn generate_tasks_streaming_async(
                 .base_url(normalize_endpoint(&settings.endpoint))
                 .build()
                 .context("build OpenAI-compatible client")?;
-            extract_streaming(
-                &client,
-                &settings.model,
-                &prompt,
-                &settings.custom_prompt,
-                on_event,
-            )
-            .await?
+            extract_streaming(&client, settings, &prompt, on_event).await?
         }
         AiProvider::Ollama => {
             let client = openai::CompletionsClient::builder()
@@ -244,14 +172,7 @@ async fn generate_tasks_streaming_async(
                 .base_url(normalize_endpoint(&settings.endpoint))
                 .build()
                 .context("build Ollama client")?;
-            extract_streaming(
-                &client,
-                &settings.model,
-                &prompt,
-                &settings.custom_prompt,
-                on_event,
-            )
-            .await?
+            extract_streaming(&client, settings, &prompt, on_event).await?
         }
         AiProvider::Claude => {
             let client = anthropic::Client::builder()
@@ -259,14 +180,7 @@ async fn generate_tasks_streaming_async(
                 .base_url(normalize_endpoint(&settings.endpoint))
                 .build()
                 .context("build Anthropic client")?;
-            extract_streaming(
-                &client,
-                &settings.model,
-                &prompt,
-                &settings.custom_prompt,
-                on_event,
-            )
-            .await?
+            extract_streaming(&client, settings, &prompt, on_event).await?
         }
         AiProvider::Gemini => {
             let client = gemini::Client::builder()
@@ -274,47 +188,17 @@ async fn generate_tasks_streaming_async(
                 .base_url(normalize_endpoint(&settings.endpoint))
                 .build()
                 .context("build Gemini client")?;
-            extract_streaming(
-                &client,
-                &settings.model,
-                &prompt,
-                &settings.custom_prompt,
-                on_event,
-            )
-            .await?
+            extract_streaming(&client, settings, &prompt, on_event).await?
         }
     };
 
     normalize_generated_tasks(extracted)
 }
 
-async fn extract<C>(
-    client: &C,
-    model: &str,
-    prompt: &str,
-    custom_prompt: &str,
-) -> Result<GeneratedTaskList>
-where
-    C: CompletionClient,
-{
-    let preamble = build_extractor_preamble(custom_prompt);
-
-    client
-        .extractor::<GeneratedTaskList>(model)
-        .preamble(&preamble)
-        .max_tokens(4096)
-        .retries(1)
-        .build()
-        .extract(prompt)
-        .await
-        .context("extract generated tasks")
-}
-
 async fn extract_streaming<C>(
     client: &C,
-    model: &str,
+    settings: &AiSettings,
     prompt: &str,
-    custom_prompt: &str,
     on_event: &mut impl FnMut(AiStreamEvent),
 ) -> Result<GeneratedTaskList>
 where
@@ -323,10 +207,11 @@ where
     <C::CompletionModel as CompletionModel>::StreamingResponse:
         Clone + Unpin + GetTokenUsage + Send,
 {
-    let preamble = build_streaming_preamble(custom_prompt);
+    let preamble = build_streaming_preamble(&settings.custom_prompt);
     let agent = client
-        .agent(model)
+        .agent(&settings.model)
         .preamble(&preamble)
+        .additional_params(thinking::parameters(settings))
         .max_tokens(4096)
         .output_schema::<GeneratedTaskList>()
         .build();
@@ -363,15 +248,6 @@ where
     }
 
     parse_generated_task_list(&raw).context("parse streamed generated tasks")
-}
-
-fn build_extractor_preamble(custom_prompt: &str) -> String {
-    let mut preamble = String::from("Generate a todo plan. Never invent completed tasks.");
-    if !custom_prompt.trim().is_empty() {
-        preamble.push_str("\n\nAdditional user instructions:\n");
-        preamble.push_str(custom_prompt.trim());
-    }
-    preamble
 }
 
 fn build_streaming_preamble(custom_prompt: &str) -> String {
@@ -708,14 +584,11 @@ mod tests {
     }
 
     #[test]
-    fn appends_custom_prompt_to_extractor_preamble() {
-        let default = build_extractor_preamble("  ");
-        assert_eq!(
-            default,
-            "Generate a todo plan. Never invent completed tasks."
-        );
+    fn appends_custom_prompt_to_streaming_preamble() {
+        let default = build_streaming_preamble("  ");
+        assert!(default.starts_with("Generate a todo plan. Never invent completed tasks."));
 
-        let customized = build_extractor_preamble("  Respond in Chinese.  ");
+        let customized = build_streaming_preamble("  Respond in Chinese.  ");
         assert!(customized.ends_with("Additional user instructions:\nRespond in Chinese."));
     }
 
